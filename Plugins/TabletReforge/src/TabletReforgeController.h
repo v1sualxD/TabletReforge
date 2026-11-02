@@ -617,15 +617,20 @@ class TabletReforgeController {
             });
             if (tabletTab == tabs.Tabs.end()) { status_ = "Waiting for the Tablet stash tab..."; return; }
             if (tabletTab->IsActive != 1) {
-                if (tabletTab->OnScreen && ClickWorldPoint(c, {static_cast<LONG>(tabletTab->CenterX()),
-                    static_cast<LONG>(tabletTab->CenterY())})) stashActionAt_ = now;
-                status_ = "Selecting the Tablet+Fragments stash tab..."; return;
+                const auto clickTab = tabletTab->OnScreen
+                    ? std::optional<POINT>(POINT{static_cast<LONG>(tabletTab->CenterX()), static_cast<LONG>(tabletTab->CenterY())})
+                    : (tabs.Toggle.OnScreen ? std::optional<POINT>(POINT{static_cast<LONG>(tabs.Toggle.CenterX()),
+                        static_cast<LONG>(tabs.Toggle.CenterY())}) : std::nullopt);
+                if (clickTab && ClickWorldPoint(c, *clickTab)) stashActionAt_ = now;
+                status_ = "Selecting the Tablet stash tab..."; return;
             }
             if (!AttachTabletStash(c, directory, false)) return;
             stashInputMode_ = true; stashTabSelected_ = false; stashDepositInit_ = false;
             stashStage_ = StashStage::NavigateTab;
             stashUiCategory_ = stashUiPage_ = -1; stashActionAt_ = now;
-            status_ = "Stash reopened. Returning results and continuing the scan..."; return;
+            status_ = stashResumeForDeposit_
+                ? "Stash reopened. Returning results and continuing the scan..."
+                : "Tablet stash selected. Starting the scan..."; return;
         }
         if (stashStage_ == StashStage::PendingStart) {
             if (c->Game.IsHostAutomationActive()) { Stop("Another POEFixer automation is active."); return; }
@@ -644,8 +649,11 @@ class TabletReforgeController {
                 status_ = "Waiting for your Tablet stash tab..."; return;
             }
             if (tabletTab->IsActive != 1) {
-                if (tabletTab->OnScreen && ClickWorldPoint(c, {static_cast<LONG>(tabletTab->CenterX()),
-                    static_cast<LONG>(tabletTab->CenterY())})) stashActionAt_ = now;
+                const auto clickTab = tabletTab->OnScreen
+                    ? std::optional<POINT>(POINT{static_cast<LONG>(tabletTab->CenterX()), static_cast<LONG>(tabletTab->CenterY())})
+                    : (tabs.Toggle.OnScreen ? std::optional<POINT>(POINT{static_cast<LONG>(tabs.Toggle.CenterX()),
+                        static_cast<LONG>(tabs.Toggle.CenterY())}) : std::nullopt);
+                if (clickTab && ClickWorldPoint(c, *clickTab)) stashActionAt_ = now;
                 status_ = "Selecting the Tablet stash tab..."; return;
             }
             if (!AttachTabletStash(c, directory)) {
