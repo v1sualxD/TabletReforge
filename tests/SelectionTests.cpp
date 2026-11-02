@@ -7,7 +7,8 @@ static void Check(bool value, const char* message) {
     if (!value) { std::cerr << "FAIL: " << message << '\n'; std::exit(1); }
 }
 static ReforgeItem Item(uintptr_t id, const char* category = "Abyss", int rarity = 1) {
-    return {id, std::string("Metadata/Items/TowerAugment/") + category + "Augment", rarity, 80,
+    return {id, std::string("Metadata/Items/TowerAugment/") + category + "Augment",
+        std::string(category) + " Tablet", rarity, 80,
         static_cast<int>(id % 12), static_cast<int>(id / 12), true, false};
 }
 int main() {
@@ -21,8 +22,16 @@ int main() {
         Item(7,"Ritual"), Item(8,"Ritual"), Item(9,"Ritual"), Item(10,"Ritual")});
     Check(mixed.size() == 3, "Abyss, Expedition and Ritual each form their own batch; leftovers stay");
     for (const auto& batch : mixed)
-        Check(batch[0].path == batch[1].path && batch[1].path == batch[2].path &&
+        Check(TabletCategory(batch[0]) == TabletCategory(batch[1]) && TabletCategory(batch[1]) == TabletCategory(batch[2]) &&
             batch[0].rarity == batch[1].rarity && batch[1].rarity == batch[2].rarity, "never mix categories or rarities");
+
+
+    auto variantA = Item(20, "Abyss"), variantB = Item(21, "Abyss"), variantC = Item(22, "Abyss");
+    variantA.path = "Metadata/Items/TowerAugment/AbyssAugmentTier1";
+    variantB.path = "Metadata/Items/TowerAugment/MapAbyssAugment";
+    variantC.path = "Metadata/Items/TowerAugment/AbyssAugmentSpecial";
+    Check(PlanReforge({variantA, variantB, variantC}).size() == 1,
+        "same visible category accepts distinct metadata paths");
 
     std::vector<BenchNode> nodes{
         {100,-1,"game_ui","",0,0,1920,1080},
