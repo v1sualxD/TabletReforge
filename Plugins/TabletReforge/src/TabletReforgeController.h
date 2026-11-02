@@ -676,17 +676,17 @@ class TabletReforgeController {
             std::filesystem::create_directories(config);
             std::ofstream out(config / "tablet-reforge-diagnostics.txt", std::ios::trunc);
             if (!out) { status_ = "Could not write config/tablet-reforge-diagnostics.txt."; return; }
-            out << "TabletReforge 0.6.6 diagnostics\\n"
-                << "Captured status: " << status_ << "\\n"
+            out << "TabletReforge 0.6.6 diagnostics\n"
+                << "Captured status: " << status_ << "\n"
                 << "Controller phase=" << static_cast<int>(phase_)
                 << " stash_stage=" << static_cast<int>(stashStage_)
                 << " stash_cycle=" << stashCycle_ << " running=" << Running()
-                << " pending=" << pending_ << "\\n"
+                << " pending=" << pending_ << "\n"
                 << "stash_category_index=" << stashCategory_ << " stash_page_index=" << stashPage_
                 << " tracked_session_items=" << stashSessionAddresses_.size()
                 << " selected_categories=" << stashCategories_.size()
-                << " rarity_mask=" << static_cast<int>(stashRarityMask_) << "\\n"
-                << "Screen rectangles are client pixels. Entity screen coordinates are projections.\\n\\n";
+                << " rarity_mask=" << static_cast<int>(stashRarityMask_) << "\n"
+                << "Screen rectangles are client pixels. Entity screen coordinates are projections.\n\n";
 
             const auto tabs = c->Game.EnumerateStashTabs(PluginSDK::StashDomain::Own);
             out << "Own stash tabs: supported=" << tabs.Supported << " status=" << tabs.Status << '\n';
@@ -721,10 +721,10 @@ class TabletReforgeController {
                 }
             }
 
-            out << "\\nWorld entities (diagnostic snapshot):\\n";
+            out << "\nWorld entities (diagnostic snapshot):\n";
             const auto world = c->Game.GetSnapshot();
             out << "area=" << world.CurrentAreaName << " entity_count=" << world.Entities.size()
-                << " game_window_foreground=" << world.GameWindowForeground << "\\n";
+                << " game_window_foreground=" << world.GameWindowForeground << "\n";
             for (const auto& entity : world.Entities) {
                 float sx = 0, sy = 0;
                 const bool projected = c->Render.WorldToScreen(entity.WorldX, entity.WorldY,
@@ -736,20 +736,20 @@ class TabletReforgeController {
                     << " targetable_component=" << entity.Components.Targetable
                     << " world=" << entity.WorldX << ',' << entity.WorldY << ',' << entity.WorldZ
                     << " screen_valid=" << projected << " screen=" << sx << ',' << sy
-                    << " path=[" << entity.TgtPath << "]\\n";
+                    << " path=[" << entity.TgtPath << "]\n";
             }
             const auto stashObjects = c->Game.EnumerateStashObjects();
-            out << "\\nStash objects available=" << stashObjects.has_value() << '\\n';
+            out << "\nStash objects available=" << stashObjects.has_value() << '\n';
             if (stashObjects) for (const auto& object : *stashObjects) {
                 float sx = 0, sy = 0;
                 const bool projected = c->Render.WorldToScreen(object.WorldX, object.WorldY, object.WorldZ, sx, sy);
                 out << "stash entity=" << object.EntityId << " domain=" << static_cast<int>(object.Domain)
                     << " rank=" << object.Rank << " world=" << object.WorldX << ',' << object.WorldY
                     << ',' << object.WorldZ << " screen_valid=" << projected << " screen=" << sx << ',' << sy
-                    << " path=[" << object.Path << "]\\n";
+                    << " path=[" << object.Path << "]\n";
             }
 
-            out << "\\nVisible UI tree (max 8000 nodes):\\n";
+            out << "\nVisible UI tree (max 8000 nodes):\n";
             std::vector<BenchNode> nodes;
             int budget = 8000;
             ReadUi(c, c->Ui.GetGameUiRoot(), -1, 0, budget, nodes);
