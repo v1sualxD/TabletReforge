@@ -19,7 +19,7 @@ class TabletReforgeController {
     using Clock = std::chrono::steady_clock;
     enum class Phase { Idle, InitialScan, Transfer, WaitTransfer, Forge, WaitForge, PlaceResult, WaitResult };
     enum class StashStage { Idle, PendingStart, NavigateTab, NavigateCategory, NavigatePage,
-        ReadPage, Pull, WaitPull, AwaitBench, AwaitStash, Deposit, WaitDeposit, Finished,
+        ReadPage, Pull, WaitPull, CheckTabletTooltip, AwaitBench, AwaitStash, Deposit, WaitDeposit, Finished,
         CloseStashForBench, WaitStashClosed, FindBench, WaitBenchOpen, ForgePass,
         CloseBenchForStash, WaitBenchClosed, FindStash, WaitStashOpen };
     Phase phase_ = Phase::Idle;
@@ -46,6 +46,7 @@ class TabletReforgeController {
     std::optional<uintptr_t> stashDepositItem_;
     std::map<uintptr_t, ReforgeItem> stashExpectedBag_;
     std::unordered_set<uintptr_t> stashSessionAddresses_;
+    std::unordered_set<uintptr_t> stashSkippedAddresses_;
     int stashUiCategory_ = -1, stashUiPage_ = -1;
     uint64_t stashBagStamp_ = 0;
     Clock::time_point stashActionAt_{};
@@ -390,6 +391,24 @@ class TabletReforgeController {
         } catch (...) {}
         return false;
     }
+    std::optional<bool> ReadHoveredTabletSanctified(const PluginSDK::Context* c, const ReforgeItem& item) {
+        const auto expectedBase = NormalizeIdentifier(item.baseType);
+        if (expectedBase.empty()) return std::nullopt;
+        std::vector<BenchNode> nodes;
+        int budget = 3000;
+        ReadUi(c, c->Ui.GetGameUiRoot(), -1, 0, budget, nodes);
+        if (budget <= 0) return std::nullopt;
+        bool tooltipTitleFound = false;
+        bool sanctifiedTextFound = false;
+        for (const auto& node : nodes) {
+            const auto text = NormalizeIdentifier(c->Ui.GetText(node.address));
+            if (text.empty()) continue;
+            if (text.find(expectedBase) != std::string::npos) tooltipTitleFound = true;
+            if (text.find("sanctified") != std::string::npos) sanctifiedTextFound = true;
+        }
+        if (!tooltipTitleFound) return std::nullopt;
+        return sanctifiedTextFound;
+    }
     bool LiveNode(const PluginSDK::Context* c, const BenchNode& expected, uintptr_t ancestor) const {
         const auto element = c->Ui.Read(expected.address);
         if (!element.Valid || !c->Ui.IsVisible(expected.address)) return false;
@@ -565,7 +584,8 @@ class TabletReforgeController {
         stashInputMode_ = stashStage_ == StashStage::NavigateTab ||
             stashStage_ == StashStage::NavigateCategory || stashStage_ == StashStage::NavigatePage ||
             stashStage_ == StashStage::ReadPage || stashStage_ == StashStage::Pull ||
-            stashStage_ == StashStage::WaitPull || stashStage_ == StashStage::Deposit ||
+            stashStage_ == StashStage::WaitPull || stashStage_ == StashStage::CheckTabletTooltip ||
+            stashStage_ == StashStage::Deposit ||
             stashStage_ == StashStage::WaitDeposit;
         if (PumpInput(c)) return;
 
@@ -682,7 +702,7 @@ class TabletReforgeController {
                 Stop("No free inventory slot. Clear space before starting the stash cycle."); return;
             }
             area_ = snapshot.AreaChangeCounter; stashExpectedBag_ = Bag(c, snapshot.Value,
-                snapshot.AreaChangeCounter, snapshot.ScanStamp); stashSessionAddresses_.clear();
+                snapshot.AreaChangeCounter, snapshot.ScanStamp); stashSessionAddresses_.clear(); stashSkippedAddresses_.clear();
             stashInputMode_ = true; stashTabSelected_ = false; stashUiCategory_ = stashUiPage_ = -1;
             stashStage_ = StashStage::NavigateTab; stashActionAt_ = now;
         }
@@ -778,6 +798,7 @@ class TabletReforgeController {
                     bonusRule.minUsesLeft = 0;
                     if (ConfigAccepts(bonusRule, parsed, true, stashCategories_[stashCategory_], nullptr)) continue;
                 }
+                if (stashSkippedAddresses_.contains(item.Address)) continue;
                 candidates.push_back(&item);
             }
             std::sort(candidates.begin(), candidates.end(), [](const auto* a, const auto* b) {
@@ -786,9 +807,36 @@ class TabletReforgeController {
             if (candidates.empty()) { AdvanceStashPage(c); return; }
             const auto* item = candidates.front();
             const auto point = TabletStashSlotCenter(*stashTargets_, item->SlotX, item->SlotY);
-            if (!point || !Click(c, *point, true)) { Stop("Could not safely Ctrl-click a stash tablet."); return; }
+            if (!point || !MoveCursor(c, *point)) { Stop("Could not safely hover a stash tablet for inspection."); return; }
             stashPendingItem_ = Identity(c, *item); stashExpectedBag_ = bag;
             stashBagStamp_ = snapshot.ScanStamp;
+            stashStage_ = StashStage::CheckTabletTooltip; stashActionAt_ = now;
+            status_ = "Checking tablet properties before withdrawing...";
+            return;
+        }
+        if (stashStage_ == StashStage::CheckTabletTooltip) {
+            if (!stashPendingItem_ || bag != stashExpectedBag_ || snapshot.ScanStamp != stashBagStamp_) {
+                Stop("Tablet inventory changed while checking its properties."); return;
+            }
+            const auto sanctified = ReadHoveredTabletSanctified(c, *stashPendingItem_);
+            if (!sanctified) {
+                Stop("Could not verify the hovered tablet tooltip. No item clicked; capture Diagnostics and share the report."); return;
+            }
+            if (*sanctified) {
+                stashSkippedAddresses_.insert(stashPendingItem_->address);
+                stashPendingItem_.reset(); stashStage_ = StashStage::ReadPage; stashActionAt_ = now;
+                status_ = "Sanctified tablet left in the stash; checking the next tablet...";
+                return;
+            }
+            const auto match = MatchVisibleStashPage(*stashTargets_, c->Inventory.GetAll(), stashCategories_[stashCategory_]);
+            const auto item = std::find_if(match.inventory.Items.begin(), match.inventory.Items.end(), [&](const auto& entry) {
+                return entry.Address == stashPendingItem_->address;
+            });
+            if (match.state != TabletStashPageMatchState::Matched || item == match.inventory.Items.end()) {
+                Stop("Could not revalidate the inspected Tablet stash item. No item clicked."); return;
+            }
+            const auto point = TabletStashSlotCenter(*stashTargets_, item->SlotX, item->SlotY);
+            if (!point || !Click(c, *point, true)) { Stop("Could not safely Ctrl-click a stash tablet."); return; }
             stashStage_ = StashStage::WaitPull; stashActionAt_ = now;
             status_ = "Withdrawing selected identified tablets from stash...";
             c->Inventory.Scan(1); return;
