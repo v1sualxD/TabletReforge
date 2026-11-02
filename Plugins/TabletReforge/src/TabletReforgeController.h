@@ -70,10 +70,24 @@ class TabletReforgeController {
     int inputPulseMs_ = 40;
 
 
+    static bool ContainsSanctifiedText(const std::string& value) {
+        return NormalizeIdentifier(value).find("sanctified") != std::string::npos;
+    }
+    static bool HasSanctifiedMarker(const PluginSDK::ItemMods& mods) {
+        const auto contains = [](const std::vector<PluginSDK::Mod>& group) {
+            return std::any_of(group.begin(), group.end(), [](const auto& mod) {
+                return ContainsSanctifiedText(mod.Name) || ContainsSanctifiedText(mod.StatKey) ||
+                    ContainsSanctifiedText(mod.AffixName) || ContainsSanctifiedText(mod.Id);
+            });
+        };
+        return contains(mods.ImplicitMods) || contains(mods.ExplicitMods) ||
+            contains(mods.EnchantMods) || contains(mods.HellscapeMods) || contains(mods.CrucibleMods);
+    }
     static ReforgeItem Identity(const PluginSDK::Context* c, const PluginSDK::InventoryItem& i,
                                 ParsedTablet* parsed = nullptr) {
         ReforgeItem result{i.Address, i.Path, i.BaseTypeName, i.Rarity, i.ItemLevel, i.SlotX, i.SlotY,
             i.IsIdentified, i.IsCorrupted};
+        result.sanctified = ContainsSanctifiedText(i.Path) || ContainsSanctifiedText(i.BaseTypeName);
         // Some POEFixer hosts leave rarity/identification unset in the inventory snapshot.
         // The item-mod summary is the authoritative fallback when it is available.
         if (c && i.Address) {
@@ -83,6 +97,7 @@ class TabletReforgeController {
                 result.level = mods.ItemLevel;
                 result.identified = mods.IsIdentified;
                 result.corrupted = mods.IsCorrupted;
+                result.sanctified = result.sanctified || HasSanctifiedMarker(mods);
                 if (parsed) *parsed = ParseWithMods(i.Path, i.BaseTypeName, mods);
             } else if (parsed) {
                 *parsed = ParseTypeOnly(i.Path, i.BaseTypeName);
@@ -135,7 +150,7 @@ class TabletReforgeController {
             std::filesystem::create_directories(config);
             std::ofstream out(config / "tablet-scan.txt", std::ios::trunc);
             out << "TabletReforge 0.5.3 inventory scan\n"
-                << "slot_x,slot_y,path,base_type,raw_rarity,raw_identified,mods_valid,mods_rarity,mods_identified,mods_corrupted,category,effective_rarity,effective_identified,effective_corrupted,eligible\n";
+                << "slot_x,slot_y,path,base_type,raw_rarity,raw_identified,mods_valid,mods_rarity,mods_identified,mods_corrupted,sanctified_marker,category,effective_rarity,effective_identified,effective_corrupted,eligible\n";
             for (const auto& item : inv.Items) {
                 if (!LooksLikeTablet(item.Path, item.BaseTypeName)) continue;
                 const auto found = bag.find(item.Address);
@@ -143,7 +158,8 @@ class TabletReforgeController {
                 const auto mods = c ? c->Inventory.ReadItemMods(item.Address) : PluginSDK::ItemMods{};
                 out << item.SlotX << ',' << item.SlotY << ',' << item.Path << ',' << item.BaseTypeName << ','
                     << item.Rarity << ',' << item.IsIdentified << ',' << mods.Valid << ',' << mods.Rarity << ','
-                    << mods.IsIdentified << ',' << mods.IsCorrupted << ',' << TabletCategory(identity) << ','
+                    << mods.IsIdentified << ',' << mods.IsCorrupted << ',' << identity.sanctified << ','
+                    << TabletCategory(identity) << ','
                     << identity.rarity << ',' << identity.identified << ',' << identity.corrupted << ','
                     << EligibleTablet(identity) << '\n';
             }
