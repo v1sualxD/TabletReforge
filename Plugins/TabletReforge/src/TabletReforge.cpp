@@ -1,5 +1,6 @@
 // Derived from TabletHelper by Omer Faruk ARPA and POEFixer. GPL-3.0.
 #include "TabletReforgeController.h"
+#include "TabletStashDiscovery.h"
 #include "../../../POEFixer/imgui/imgui.h"
 #include "../lib/nlohmann/json.hpp"
 #include <fstream>
@@ -35,7 +36,7 @@ uint8_t MakeRarityMask(bool normal, bool magic, bool rare) {
 POEFIXER_PLUGIN_INFO(
     "TabletReforge",
     "Tablet Reforge",
-    "0.5.5",
+    "0.5.7",
     "TabletReforge contributors; Omer Faruk ARPA; POEFixer",
     "Reforge identified tablets by rarity in matching category trios, collect results without reusing unidentified tablets, and display tablet types.")
 
@@ -86,6 +87,10 @@ public:
                     normal_ = ReadBool(*raritySettings, "normal", ReadBool(settings, "rarity_normal", normal_));
                     magic_ = ReadBool(*raritySettings, "magic", ReadBool(settings, "rarity_magic", magic_));
                     rare_ = ReadBool(*raritySettings, "rare", ReadBool(settings, "rarity_rare", rare_));
+                    if (settings.contains("categories") && settings["categories"].is_object()) {
+                        for (auto& type : types_)
+                            type.enabled = ReadBool(settings["categories"], type.key.c_str(), type.enabled);
+                    }
                 }
             }
         } catch (...) { ctx()->Log.Warn("TabletReforge: could not read settings; defaults are active."); }
@@ -110,6 +115,10 @@ public:
                 {"rarity_magic", magic_},
                 {"rarity_rare", rare_}
             };
+            settings["categories"] = nlohmann::json::object();
+            for (const auto& type : types_)
+                if (type.key != TabletHelper::TypeKeys::Global)
+                    settings["categories"][type.key] = type.enabled;
             file << settings.dump(2);
             file.flush();
             if (!file.good()) throw std::runtime_error("Settings write failed");
@@ -126,6 +135,14 @@ public:
         ImGui::TextWrapped("Choose rarities to process. The plugin groups tablets by their category and rarity, then reforges matching trios of three.");
         ImGui::BeginDisabled(controller_.Busy());
         if (ImGui::Checkbox("All tablets in inventory", &allTablets_)) SaveSettings();
+        ImGui::Text("Tablet categories to process");
+        for (const auto* category : TabletHelper::StashCategoryOrder) {
+            const auto type = std::find_if(types_.begin(), types_.end(), [&](const auto& entry) {
+                return entry.key == category;
+            });
+            if (type != types_.end() && ImGui::Checkbox(category, &type->enabled)) SaveSettings();
+        }
+        ImGui::TextDisabled("Only checked categories and rarities are reforged. Stash cycling is not available yet.");
         ImGui::Text("Rarities to process");
         if (ImGui::Checkbox("Normal", &normal_)) SaveSettings();
         ImGui::SameLine();
