@@ -1,4 +1,4 @@
-# TabletReforge 0.5.3
+# TabletReforge 0.5.4
 
 An English-only POEFixer plugin for reforging identified Path of Exile 2 tablets from the inventory.
 Based on TabletHelper by Omer Faruk ARPA and POEFixer, distributed under GPL-3.0.
@@ -45,6 +45,8 @@ changes, an unexpected inventory change, or a timeout. Do not move items or open
 ## Build and install
 
 Repository: https://github.com/v1sualxD/TabletReforge
+
+The settings panel includes **Capture Tablet stash diagnostics**. With the Tablet stash tab open, this writes the currently visible stash inventory and visible UI control tree to `Plugins/TabletReforge/config/tablet-stash-ui.txt` for safe category/page control discovery.
 
 In POEFixer, choose **Plugins > Plugin Manager > Add from GitHub**, enter the repository address, and
 install or update. The latest release contains `TabletReforge.zip` with
