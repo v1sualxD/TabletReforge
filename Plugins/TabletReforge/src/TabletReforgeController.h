@@ -72,7 +72,7 @@ class TabletReforgeController {
             const auto config = directory / "config";
             std::filesystem::create_directories(config);
             std::ofstream out(config / "tablet-scan.txt", std::ios::trunc);
-            out << "TabletReforge 0.3.3 inventory scan\n"
+            out << "TabletReforge 0.3.4 inventory scan\n"
                 << "slot_x,slot_y,path,base_type,raw_rarity,raw_identified,mods_valid,mods_rarity,mods_identified,mods_corrupted,category,effective_rarity,effective_identified,effective_corrupted,eligible\n";
             for (const auto& item : inv.Items) {
                 if (!LooksLikeTablet(item.Path, item.BaseTypeName)) continue;
@@ -126,7 +126,7 @@ class TabletReforgeController {
         try {
             std::filesystem::create_directories(directory / "config");
             std::ofstream out(directory / "config" / "reforge-ui.txt", std::ios::trunc);
-            out << "TabletReforge 0.3.3 UI discovery: " << nodes.size() << " nodes; budget=" << budget << '\n';
+            out << "TabletReforge 0.3.4 UI discovery: " << nodes.size() << " nodes; budget=" << budget << '\n';
             for (size_t index = 0; index < nodes.size(); ++index) {
                 const auto& n = nodes[index];
                 const auto textId = NormalizeIdentifier(n.text);
@@ -161,9 +161,11 @@ class TabletReforgeController {
         if (!targets_ || !Foreground(c) || c->Game.GetGameWindow() != window_ ||
             c->Game.GetAreaChangeCounter() != area_ || c->Game.IsHostAutomationActive()) return false;
         RECT client{};
+        // Reforging replaces child controls as tablets enter or leave the bench.
+        // Keep the panel as the stable anchor; validating button/output nodes during every
+        // 40 ms click pulse can falsely abort the Ctrl-click that is changing those nodes.
         return ::GetClientRect(window_, &client) && client.right == width_ && client.bottom == height_ &&
-            LiveNode(c, targets_->panel, c->Ui.GetGameUiRoot()) &&
-            LiveNode(c, targets_->button, targets_->panel.address) && LiveNode(c, targets_->output, targets_->panel.address);
+            LiveNode(c, targets_->panel, c->Ui.GetGameUiRoot());
     }
     bool Click(const PluginSDK::Context* c, POINT point, bool ctrl) {
         if (!Ready(c) || point.x < 0 || point.y < 0 || point.x >= width_ || point.y >= height_) return false;
@@ -199,7 +201,7 @@ class TabletReforgeController {
     }
     bool PumpInput(const PluginSDK::Context* c) {
         if (inputPhase_ == InputPhase::Idle) return false;
-        if (!Ready(c)) { Stop("Stopped: game focus or bench changed during a click."); return true; }
+        if (!Ready(c)) { Stop("Stopped: game focus or bench panel changed during a click."); return true; }
         const auto now = Clock::now();
         if (now < inputDue_) return true;
         INPUT event{};
