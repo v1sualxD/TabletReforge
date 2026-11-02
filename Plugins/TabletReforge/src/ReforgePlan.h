@@ -34,7 +34,7 @@ inline std::vector<ReforgeBatch> PlanReforge(std::vector<ReforgeItem> items) {
     std::set<uintptr_t> seen;
     for (const auto& item : items) {
         if (!item.address || !seen.insert(item.address).second || item.corrupted ||
-            !item.identified || item.rarity < 0 || item.rarity > 2 ||
+            !item.identified || item.rarity < 1 || item.rarity > 2 ||
             !LooksLikeTablet(item.path, item.baseType)) continue;
         const std::string category = TabletCategory(item);
         if (!IsRealType(category)) continue;
