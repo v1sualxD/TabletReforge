@@ -74,7 +74,7 @@ class TabletReforgeController {
             const auto config = directory / "config";
             std::filesystem::create_directories(config);
             std::ofstream out(config / "tablet-scan.txt", std::ios::trunc);
-            out << "TabletReforge 0.3.8 inventory scan\n"
+            out << "TabletReforge 0.3.9 inventory scan\n"
                 << "slot_x,slot_y,path,base_type,raw_rarity,raw_identified,mods_valid,mods_rarity,mods_identified,mods_corrupted,category,effective_rarity,effective_identified,effective_corrupted,eligible\n";
             for (const auto& item : inv.Items) {
                 if (!LooksLikeTablet(item.Path, item.BaseTypeName)) continue;
@@ -151,7 +151,7 @@ class TabletReforgeController {
         try {
             std::filesystem::create_directories(directory / "config");
             std::ofstream out(directory / "config" / "reforge-ui.txt", std::ios::trunc);
-            out << "TabletReforge 0.3.8 UI discovery: " << nodes.size() << " nodes; budget=" << budget << '\n';
+            out << "TabletReforge 0.3.9 UI discovery: " << nodes.size() << " nodes; budget=" << budget << '\n';
             for (size_t index = 0; index < nodes.size(); ++index) {
                 const auto& n = nodes[index];
                 const auto textId = NormalizeIdentifier(n.text);
@@ -191,6 +191,22 @@ class TabletReforgeController {
         // 40 ms click pulse can falsely abort the Ctrl-click that is changing those nodes.
         return ::GetClientRect(window_, &client) && client.right == width_ && client.bottom == height_ &&
             LiveNode(c, targets_->panel, c->Ui.GetGameUiRoot());
+    }
+    bool MoveCursor(const PluginSDK::Context* c, POINT point) {
+        if (!Ready(c) || point.x < 0 || point.y < 0 || point.x >= width_ || point.y >= height_) return false;
+        for (int key : {VK_CONTROL, VK_SHIFT, VK_MENU, VK_LWIN, VK_RWIN, VK_LBUTTON, VK_RBUTTON})
+            if (::GetAsyncKeyState(key) & 0x8000) return false;
+        POINT screen = point;
+        if (!::ClientToScreen(window_, &screen)) return false;
+        const int sx = ::GetSystemMetrics(SM_XVIRTUALSCREEN), sy = ::GetSystemMetrics(SM_YVIRTUALSCREEN);
+        const int sw = ::GetSystemMetrics(SM_CXVIRTUALSCREEN), sh = ::GetSystemMetrics(SM_CYVIRTUALSCREEN);
+        if (sw < 2 || sh < 2 || screen.x < sx || screen.y < sy || screen.x >= sx + sw || screen.y >= sy + sh) return false;
+        INPUT input{};
+        input.type = INPUT_MOUSE;
+        input.mi.dx = static_cast<LONG>((static_cast<double>(screen.x - sx) * 65535.0) / (sw - 1));
+        input.mi.dy = static_cast<LONG>((static_cast<double>(screen.y - sy) * 65535.0) / (sh - 1));
+        input.mi.dwFlags = MOUSEEVENTF_MOVE | MOUSEEVENTF_ABSOLUTE | MOUSEEVENTF_VIRTUALDESK;
+        return ::SendInput(1, &input, sizeof(INPUT)) == 1;
     }
     bool Click(const PluginSDK::Context* c, POINT point, bool ctrl) {
         if (!Ready(c) || point.x < 0 || point.y < 0 || point.x >= width_ || point.y >= height_) return false;
@@ -427,6 +443,17 @@ public:
                 status_ = "Finished: " + std::to_string(count) + " batch(es). Results returned to inventory."; return;
             }
             item_ = 0; phase_ = Phase::Transfer; actionAt_ = now; deadline_ = now + std::chrono::seconds(6);
+            const auto nextAddress = batches_[batch_][item_].address;
+            const auto nextItem = std::find_if(inv.Items.begin(), inv.Items.end(), [&](const auto& item) {
+                return item.Address == nextAddress;
+            });
+            if (nextItem == inv.Items.end()) { Stop("Stopped: next planned tablet is missing."); return; }
+            const auto nextRect = ResolveItemRect(inv, *nextItem, HasItemRects(inv), true,
+                static_cast<float>(width_), static_cast<float>(height_));
+            if (!nextRect || !MoveCursor(c, {static_cast<LONG>(nextRect->x + nextRect->w / 2),
+                static_cast<LONG>(nextRect->y + nextRect->h / 2)})) {
+                Stop("Stopped: could not move to the next planned tablet."); return;
+            }
         }
     }
 };
