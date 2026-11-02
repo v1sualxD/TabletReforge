@@ -1,14 +1,18 @@
 #pragma once
 
+
 // Tablet type keys, detection and classification. Pure standard C++ (no host or
 // ImGui dependency), shared by the scan worker, the matcher and the tests.
+
 
 #include <array>
 #include <cctype>
 #include <string>
 #include <string_view>
 
+
 namespace TabletHelper {
+
 
 // Stable ASCII type keys: the JSON keys of settings.json and the catalog keys.
 // Never localised.
@@ -25,10 +29,12 @@ inline constexpr const char* Temple     = "Temple";
 inline constexpr const char* Global     = "Global";  // the cross-type "All types" scope
 }  // namespace TypeKeys
 
+
 // The eight real tablet types in canonical order (Global is handled separately).
 inline constexpr std::array<const char*, 8> kRealTypeKeys = {
     TypeKeys::Irradiated, TypeKeys::Breach, TypeKeys::Delirium, TypeKeys::Expedition,
     TypeKeys::Abyss,      TypeKeys::Ritual, TypeKeys::Overseer, TypeKeys::Temple};
+
 
 inline std::string ToLowerCopy(std::string_view s) {
     std::string out;
@@ -36,6 +42,7 @@ inline std::string ToLowerCopy(std::string_view s) {
     for (unsigned char c : s) out.push_back(static_cast<char>(std::tolower(c)));
     return out;
 }
+
 
 // Allocation-free case-insensitive substring test. `needleLower` must already be
 // lowercase.
@@ -53,6 +60,7 @@ inline bool ContainsCI(std::string_view hay, std::string_view needleLower) {
     return false;
 }
 
+
 // Lowercase alphanumerics only: "TowerBreachBossChance1" -> "towerbreachbosschance1".
 inline std::string NormalizeIdentifier(std::string_view value) {
     std::string out;
@@ -62,6 +70,7 @@ inline std::string NormalizeIdentifier(std::string_view value) {
     return out;
 }
 
+
 // Drops a trailing run of digits (tier suffix): "towerbreachbosschance1" ->
 // "towerbreachbosschance".
 inline std::string StripTrailingDigits(const std::string& v) {
@@ -70,14 +79,16 @@ inline std::string StripTrailingDigits(const std::string& v) {
     return v.substr(0, end);
 }
 
+
 // A Precursor Tablet has a metadata path under Metadata/Items/TowerAugment/
 // (BreachAugment, GenericAugment, MapBossAugment, ...). The English base-type
 // fallback only matters when a host leaves the path empty.
 inline bool LooksLikeTablet(std::string_view path, std::string_view baseType) {
     if (ContainsCI(path, "toweraugment")) return true;
-    if (ContainsCI(baseType, "precursor tablet")) return true;
+    if (ContainsCI(baseType, "tablet")) return true;
     return false;
 }
+
 
 // Type from the metadata path (plus the base type as a safety net). Order
 // matters: the first match wins. Unknown when nothing matched; the scanner then
@@ -95,6 +106,7 @@ inline const char* ClassifyFromText(std::string_view path, std::string_view base
     return TypeKeys::Unknown;
 }
 
+
 // Fallback from a lowercased blob of the implicit mods' ids and stat keys.
 inline const char* ClassifyFromModText(std::string_view lowerModText) {
     if (lowerModText.empty()) return TypeKeys::Unknown;
@@ -110,17 +122,20 @@ inline const char* ClassifyFromModText(std::string_view lowerModText) {
     return TypeKeys::Unknown;
 }
 
+
 inline bool IsRealType(std::string_view key) {
     for (const char* k : kRealTypeKeys)
         if (key == k) return true;
     return false;
 }
 
+
 // A lang/en.json key written where it is looked up later, at drawing time (what
 // PluginI18n.h's I18n::Key does; this header stays free of the SDK so the tests
 // compile it alone). tools/plugin_i18n/gen.py --gate checks every Key("...")
 // literal against lang/en.json.
 constexpr const char* Key(const char* key) { return key; }
+
 
 // Key of the type's name in the settings tab ("Breach Tablet").
 inline const char* TypeNameKey(std::string_view key) {
@@ -136,6 +151,7 @@ inline const char* TypeNameKey(std::string_view key) {
     return Key("type_name_unknown");
 }
 
+
 // Key of the label drawn on the tablet in game ("Breach").
 inline const char* TypeShortKey(std::string_view key) {
     if (key == TypeKeys::Irradiated) return Key("type_short_irradiated");
@@ -150,6 +166,7 @@ inline const char* TypeShortKey(std::string_view key) {
     return Key("type_short_unknown");
 }
 
+
 // Key of the three-letter label used when the short name does not fit the cell;
 // nullptr for a type without one (drawn as "?").
 inline const char* TypeAbbreviationKey(std::string_view key) {
@@ -163,5 +180,6 @@ inline const char* TypeAbbreviationKey(std::string_view key) {
     if (key == TypeKeys::Temple)     return Key("type_abbr_temple");
     return nullptr;
 }
+
 
 }  // namespace TabletHelper
