@@ -1,4 +1,4 @@
-# TabletReforge 0.6.5
+# TabletReforge 0.6.6
 
 An English-only POEFixer plugin for reforging Path of Exile 2 tablets. Based on TabletHelper by Omer Faruk ARPA and POEFixer; distributed under GPL-3.0.
 
@@ -19,6 +19,10 @@ Only identified, non-corrupted Magic and Rare tablets are used; Normal tablets a
 5. When prompted again, open **TABLET+FRAGMENTS > Tablets**, click **Continue at Tablet stash**, then close the menu. The plugin returns results and leftovers to a page with space, then scans again until no compatible identified trio remains.
 
 Stash and bench panels cannot stay open together, so the plugin pauses for the player to switch between them. Only tablets withdrawn during this run and their reforge results are returned. If page contents cannot be matched uniquely to the live UI, the plugin stops without clicking.
+
+## Diagnostics
+
+Open the plugin's final **Diagnostics** section and capture a report after an error, with the relevant in-game panel open. It saves `config/tablet-reforge-diagnostics.txt` in the plugin folder, including the current state, inventory, visible UI tree, and world entity paths.
 
 ## Controls and safety
 
