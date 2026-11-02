@@ -1,4 +1,4 @@
-# TabletReforge 0.3.8
+# TabletReforge 0.3.9
 
 An English-only POEFixer plugin for reforging identified Path of Exile 2 tablets from the inventory.
 Based on TabletHelper by Omer Faruk ARPA and POEFixer, distributed under GPL-3.0.
@@ -14,8 +14,9 @@ The plugin uses Ctrl + left click to move each input tablet from the inventory t
 (1–20) controls input click duration, the pause before each transfer and the confirmation polling cadence. It activates **Reforge**
 with a normal left click. To collect a result, it uses a normal left click on the output and waits 0.7 seconds
 after clicking the output before processing the pickup. It places the item into the first free inventory cell if
-the click picks it up instead of transferring it directly. A new inventory snapshot must confirm the
-result before the next trio begins. If an unexpected
+the click picks it up instead of transferring it directly. After confirming the result, the cursor moves to
+the next tablet from the original planned batch list; the unidentified result is never added to that list.
+If an unexpected
 state is detected, the sequence stops and reports that the bench may need manual recovery.
 
 ## Tablet rules
