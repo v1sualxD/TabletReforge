@@ -742,7 +742,7 @@ class TabletReforgeController {
                 float sx = 0, sy = 0;
                 const auto entityPath = WideToUtf8(entity.Path);
                 const bool targetable = entity.Components.Targetable &&
-                    c->Game.ReadTargetable(entity.Components.Targetable).IsTargetable;
+                    c->Components.ReadTargetable(entity.Components.Targetable).IsTargetable;
                 const bool projected = c->Render.WorldToScreen(entity.WorldX, entity.WorldY,
                     entity.WorldZ + entity.ModelBoundsZ, sx, sy);
                 out << "entity id=" << entity.Id
