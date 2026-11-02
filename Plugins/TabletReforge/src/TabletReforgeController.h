@@ -13,7 +13,7 @@ namespace TabletHelper {
 struct TabletLabel { ScreenRect rect; std::string type; };
 class TabletReforgeController {
     using Clock = std::chrono::steady_clock;
-    enum class Phase { Idle, InitialScan, Transfer, WaitTransfer, Forge, WaitForge, WaitResult };
+    enum class Phase { Idle, InitialScan, Transfer, WaitTransfer, Forge, WaitForge, PlaceResult, WaitResult };
     Phase phase_ = Phase::Idle;
     std::vector<ScreenRect> outlines_;
     std::vector<TabletLabel> labels_;
@@ -72,7 +72,7 @@ class TabletReforgeController {
             const auto config = directory / "config";
             std::filesystem::create_directories(config);
             std::ofstream out(config / "tablet-scan.txt", std::ios::trunc);
-            out << "TabletReforge 0.3.4 inventory scan\n"
+            out << "TabletReforge 0.3.5 inventory scan\n"
                 << "slot_x,slot_y,path,base_type,raw_rarity,raw_identified,mods_valid,mods_rarity,mods_identified,mods_corrupted,category,effective_rarity,effective_identified,effective_corrupted,eligible\n";
             for (const auto& item : inv.Items) {
                 if (!LooksLikeTablet(item.Path, item.BaseTypeName)) continue;
@@ -93,6 +93,29 @@ class TabletReforgeController {
     }
     static bool Contains(const ScreenRect& r, POINT p) {
         return p.x >= r.x && p.y >= r.y && p.x < r.x + r.w && p.y < r.y + r.h;
+    }
+    static std::optional<POINT> FirstFreeInventoryCell(const PluginSDK::Inventory& inv) {
+        if (!inv.Grid.Valid || inv.Grid.CellSize <= 1.f || inv.TotalBoxesX <= 0 || inv.TotalBoxesY <= 0)
+            return std::nullopt;
+        const int columns = inv.TotalBoxesX;
+        const int rows = inv.TotalBoxesY;
+        std::vector<bool> occupied(static_cast<size_t>(columns * rows), false);
+        for (const auto& item : inv.Items) {
+            if (item.SlotX < 0 || item.SlotY < 0 || item.Width <= 0 || item.Height <= 0 ||
+                item.SlotX + item.Width > columns || item.SlotY + item.Height > rows) continue;
+            for (int y = item.SlotY; y < item.SlotY + item.Height; ++y)
+                for (int x = item.SlotX; x < item.SlotX + item.Width; ++x)
+                    occupied[static_cast<size_t>(y * columns + x)] = true;
+        }
+        for (int y = 0; y < rows; ++y) {
+            for (int x = 0; x < columns; ++x) {
+                if (occupied[static_cast<size_t>(y * columns + x)]) continue;
+                const float px = inv.Grid.GridScreenX + (static_cast<float>(x) + 0.5f) * inv.Grid.CellSize;
+                const float py = inv.Grid.GridScreenY + (static_cast<float>(y) + 0.5f) * inv.Grid.CellSize;
+                return POINT{static_cast<LONG>(px), static_cast<LONG>(py)};
+            }
+        }
+        return std::nullopt;
     }
     void ReadUi(const PluginSDK::Context* c, uintptr_t address, int parent,
                 int depth, int& budget, std::vector<BenchNode>& nodes) {
@@ -126,7 +149,7 @@ class TabletReforgeController {
         try {
             std::filesystem::create_directories(directory / "config");
             std::ofstream out(directory / "config" / "reforge-ui.txt", std::ios::trunc);
-            out << "TabletReforge 0.3.4 UI discovery: " << nodes.size() << " nodes; budget=" << budget << '\n';
+            out << "TabletReforge 0.3.5 UI discovery: " << nodes.size() << " nodes; budget=" << budget << '\n';
             for (size_t index = 0; index < nodes.size(); ++index) {
                 const auto& n = nodes[index];
                 const auto textId = NormalizeIdentifier(n.text);
@@ -354,8 +377,26 @@ public:
         }
         if (phase_ == Phase::WaitForge) {
             const auto& output = targets_->output;
-            if (bag != expected_ || !Click(c, {static_cast<LONG>(output.CenterX()), static_cast<LONG>(output.CenterY())}, true)) {
+            if (bag != expected_ || !Click(c, {static_cast<LONG>(output.CenterX()), static_cast<LONG>(output.CenterY())}, false)) {
                 Stop("Stopped before collecting the result."); return;
+            }
+            status_ = "Picking up reforge result...";
+            Wait(c, Phase::PlaceResult, snapshot.ScanStamp); return;
+        }
+        if (phase_ == Phase::PlaceResult) {
+            // Some bench versions do not quick-transfer the output on Ctrl+click.
+            // A plain click picks it up; if that did not already add it to the bag,
+            // place the carried item into a known empty inventory cell.
+            if (bag != expected_) {
+                phase_ = Phase::WaitResult;
+                actionAt_ = now;
+                stamp_ = snapshot.ScanStamp;
+                deadline_ = now + std::chrono::seconds(6);
+                return;
+            }
+            const auto emptyCell = FirstFreeInventoryCell(inv);
+            if (!emptyCell || !Click(c, *emptyCell, false)) {
+                Stop("Stopped: could not place the result in an empty inventory slot."); return;
             }
             Wait(c, Phase::WaitResult, snapshot.ScanStamp); return;
         }
