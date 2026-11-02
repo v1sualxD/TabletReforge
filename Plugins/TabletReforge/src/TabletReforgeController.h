@@ -399,15 +399,22 @@ class TabletReforgeController {
         ReadUi(c, c->Ui.GetGameUiRoot(), -1, 0, budget, nodes);
         if (budget <= 0) return std::nullopt;
         bool tooltipTitleFound = false;
-        bool sanctifiedTextFound = false;
+        bool sanctifiedMarkerFound = false;
         for (const auto& node : nodes) {
-            const auto text = NormalizeIdentifier(c->Ui.GetText(node.address) + " " + node.text + " " + node.name);
-            if (text.empty()) continue;
-            if (text.find(expectedBase) != std::string::npos) tooltipTitleFound = true;
-            if (text.find("sanctified") != std::string::npos) sanctifiedTextFound = true;
+            // PoE2 renders SANCTIFIED as a separate footer label below the tablet mods.
+            // Read localized display text separately from the UI string ID and control name,
+            // so this marker does not need to be an affix or an item-mod entry.
+            const auto displayText = NormalizeIdentifier(c->Ui.GetText(node.address));
+            const auto stringId = NormalizeIdentifier(node.text);
+            const auto controlName = NormalizeIdentifier(node.name);
+            const auto nodeText = displayText + " " + stringId + " " + controlName;
+            if (nodeText.find(expectedBase) != std::string::npos) tooltipTitleFound = true;
+            if (displayText == "sanctified" || stringId == "sanctified" || controlName == "sanctified" ||
+                nodeText.find("sanctified") != std::string::npos)
+                sanctifiedMarkerFound = true;
         }
         if (!tooltipTitleFound) return std::nullopt;
-        return sanctifiedTextFound;
+        return sanctifiedMarkerFound;
     }
     bool LiveNode(const PluginSDK::Context* c, const BenchNode& expected, uintptr_t ancestor) const {
         const auto element = c->Ui.Read(expected.address);
