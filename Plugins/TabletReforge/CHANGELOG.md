@@ -1,5 +1,11 @@
 # Changelog
 
+## TabletReforge 0.5.0
+
+- Added saved filter profiles with selection, creation, duplication, renaming and deletion. Each profile stores its tablet type settings, rarity selection and per-type modifier filters.
+- Added editable tablet modifier filters and roll ranges, plus rarity selection and rarity-coloured highlights.
+- All tablet categories start disabled until selected.
+
 ## 1.4.7
 
 - Built with the current plugin SDK: a controller that is not XInput reports no port (-1) even when ready.

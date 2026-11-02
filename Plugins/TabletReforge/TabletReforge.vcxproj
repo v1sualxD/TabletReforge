@@ -116,5 +116,11 @@
     <ClInclude Include="src\ReforgePlan.h" />
     <ClInclude Include="src\ItemRects.h" />
     <ClInclude Include="src\TabletTypes.h" />
+    <ClInclude Include="src\Settings.h" />
+    <ClInclude Include="src\TabletBonusCatalog.h" />
+    <ClInclude Include="src\TabletScanner.h" />
+    <ClInclude Include="src\TabletMatch.h" />
+    <ClInclude Include="src\TabletRanges.h" />
+    <ClInclude Include="src\lang_en.generated.h" />
   </ItemGroup>
 </Project>
