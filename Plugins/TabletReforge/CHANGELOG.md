@@ -1,5 +1,9 @@
 # Changelog
 
+## TabletReforge 0.6.9
+
+- Fixed movable-bench detection to match POEFixer's live metadata path `Metadata/MiscellaneousObjects/Hideout/ReforgingBench`.
+
 ## TabletReforge 0.6.8
 
 - Added a one-button stash cycle that closes and reopens the stash and reforging panels automatically.
