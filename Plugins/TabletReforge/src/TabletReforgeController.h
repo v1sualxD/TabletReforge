@@ -519,7 +519,11 @@ class TabletReforgeController {
             stashStage_ == StashStage::Finished || stashStage_ == StashStage::Idle ||
             stashStage_ == StashStage::ForgePass) return;
         if (!Foreground(c)) return;
-        stashInputMode_ = true;
+        stashInputMode_ = stashStage_ == StashStage::NavigateTab ||
+            stashStage_ == StashStage::NavigateCategory || stashStage_ == StashStage::NavigatePage ||
+            stashStage_ == StashStage::ReadPage || stashStage_ == StashStage::Pull ||
+            stashStage_ == StashStage::WaitPull || stashStage_ == StashStage::Deposit ||
+            stashStage_ == StashStage::WaitDeposit;
         if (PumpInput(c)) return;
 
         const auto now = Clock::now();
