@@ -2,7 +2,8 @@
 
 ## TabletReforge 0.6.9
 
-- Fixed movable-bench detection to match POEFixer's live metadata path `Metadata/MiscellaneousObjects/Hideout/ReforgingBench`.
+- Fixed movable-bench detection to match POEFixer's live path `Metadata/MiscellaneousObjects/Hideout/ReforgingBench`, with a live UI-label fallback.
+- The single launch button now opens the own stash, selects the Tablet tab, runs the full reforge cycle, and returns results automatically.
 
 ## TabletReforge 0.6.8
 
