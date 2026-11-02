@@ -1,4 +1,7 @@
 # Changelog
+## TabletReforge 0.5.3
+
+- Fixed all selected tablet rarities being excluded when modifier filters were removed. Eligible tablets now form same-category, same-rarity trios.
 
 ## TabletReforge 0.5.2
 
