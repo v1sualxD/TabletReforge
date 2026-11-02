@@ -30,8 +30,8 @@ bool ReadBool(const nlohmann::json& settings, const char* key, bool fallback) {
         ? settings[key].get<bool>() : fallback;
 }
 
-uint8_t MakeRarityMask(bool normal, bool magic, bool rare) {
-    return static_cast<uint8_t>((normal ? 1 : 0) | (magic ? 2 : 0) | (rare ? 4 : 0));
+uint8_t MakeRarityMask(bool magic, bool rare) {
+    return static_cast<uint8_t>((magic ? 2 : 0) | (rare ? 4 : 0));
 }
 } // namespace
 
@@ -47,14 +47,14 @@ class TabletReforgePlugin : public PluginSDK::Plugin {
     bool allTablets_ = true;
     bool showTabletTypes_ = true;
     bool running_ = false;
-    bool normal_ = true;
     bool magic_ = true;
     bool rare_ = true;
     int executionSpeed_ = 15;
+    int minimumUses_ = 1;
     std::vector<TypeConfig> types_ = AllTabletTypes();
     std::array<char, 160> bonusSearch_{};
 
-    uint8_t RarityMask() const { return MakeRarityMask(normal_, magic_, rare_); }
+    uint8_t RarityMask() const { return MakeRarityMask(magic_, rare_); }
 
 public:
     const char* GetName() const override { return "Tablet Reforge"; }
@@ -64,8 +64,9 @@ public:
         if (!HostCompatible()) return;
         allTablets_ = true;
         showTabletTypes_ = true;
-        normal_ = magic_ = rare_ = true;
+        magic_ = rare_ = true;
         executionSpeed_ = 15;
+        minimumUses_ = 1;
         types_ = AllTabletTypes();
         try {
             std::ifstream file(DirectoryPath() / "config" / "settings.json");
@@ -87,9 +88,10 @@ public:
                         const auto& profile = settings["profiles"][index];
                         if (profile.is_object()) raritySettings = &profile;
                     }
-                    normal_ = ReadBool(*raritySettings, "normal", ReadBool(settings, "rarity_normal", normal_));
                     magic_ = ReadBool(*raritySettings, "magic", ReadBool(settings, "rarity_magic", magic_));
                     rare_ = ReadBool(*raritySettings, "rare", ReadBool(settings, "rarity_rare", rare_));
+                    if (settings.contains("minimum_uses") && settings["minimum_uses"].is_number_integer())
+                        minimumUses_ = std::clamp(settings["minimum_uses"].get<int>(), 1, 10);
                     if (settings.contains("categories") && settings["categories"].is_object()) {
                         for (auto& type : types_)
                             type.enabled = ReadBool(settings["categories"], type.key.c_str(), type.enabled);
@@ -99,6 +101,8 @@ public:
                 }
             }
         } catch (...) { ctx()->Log.Warn("TabletReforge: could not read settings; defaults are active."); }
+        for (auto& type : types_)
+            if (type.key != TabletHelper::TypeKeys::Global) type.minUsesLeft = minimumUses_;
         controller_.Reset();
         running_ = true;
     }
@@ -116,7 +120,7 @@ public:
                 {"all_tablets", allTablets_},
                 {"show_tablet_types", showTabletTypes_},
                 {"execution_speed", executionSpeed_},
-                {"rarity_normal", normal_},
+                {"minimum_uses", minimumUses_},
                 {"rarity_magic", magic_},
                 {"rarity_rare", rare_}
             };
@@ -138,46 +142,54 @@ public:
         if (!running_ || !ctx()->ImGuiContext) return;
         ImGui::SetCurrentContext(static_cast<ImGuiContext*>(ctx()->ImGuiContext));
         ImGui::PushID("TabletReforge");
-        ImGui::TextWrapped("Choose rarities to process. The plugin groups tablets by their category and rarity, then reforges matching trios of three.");
+
+        ImGui::TextUnformatted("Tablet Reforge");
+        ImGui::TextDisabled("Select what to process, then choose an automation action.");
+        ImGui::Separator();
+
         ImGui::BeginDisabled(controller_.Busy() || controller_.StashCycleActive());
         if (ImGui::Checkbox("All tablets in inventory", &allTablets_)) SaveSettings();
-        ImGui::Text("Tablet categories to process");
+        if (ImGui::SliderInt("Transfer speed", &executionSpeed_, 1, 20)) SaveSettings();
+        if (ImGui::SliderInt("Minimum uses to process", &minimumUses_, 1, 10)) {
+            for (auto& type : types_)
+                if (type.key != TabletHelper::TypeKeys::Global) type.minUsesLeft = minimumUses_;
+            SaveSettings();
+        }
+        ImGui::TextDisabled("Minimum uses applies to stash withdrawal and inventory reforging.");
+        if (ImGui::Checkbox("Highlight tablet types", &showTabletTypes_)) SaveSettings();
+
+        ImGui::Separator();
+        ImGui::TextUnformatted("Tablet categories");
+        ImGui::Columns(4, "TabletReforgeCategories", false);
         for (const auto* category : TabletHelper::StashCategoryOrder) {
             const auto type = std::find_if(types_.begin(), types_.end(), [&](const auto& entry) {
                 return entry.key == category;
             });
             if (type != types_.end() && ImGui::Checkbox(category, &type->enabled)) SaveSettings();
+            ImGui::NextColumn();
         }
-        ImGui::TextDisabled("Checked categories and rarities are used for both inventory reforging and stash cycling.");
-        ImGui::Text("Rarities to process");
-        if (ImGui::Checkbox("Normal", &normal_)) SaveSettings();
-        ImGui::SameLine();
+        ImGui::Columns(1);
+
+        ImGui::TextUnformatted("Rarities");
         if (ImGui::Checkbox("Magic", &magic_)) SaveSettings();
         ImGui::SameLine();
         if (ImGui::Checkbox("Rare", &rare_)) SaveSettings();
-        if (ImGui::SliderInt("Tablet transfer speed", &executionSpeed_, 1, 20)) SaveSettings();
-        ImGui::TextDisabled("Highlights: Normal gray, Magic blue, Rare yellow. Result pickup waits 0.7 seconds.");
-        if (ImGui::Checkbox("Highlight tablet types", &showTabletTypes_)) SaveSettings();
+        ImGui::TextDisabled("Normal tablets are excluded. Highlights: Magic blue, Rare yellow.");
         ImGui::EndDisabled();
 
         ImGui::Separator();
+        ImGui::TextUnformatted("Stash keep filters");
+        ImGui::TextDisabled("Tablets with selected mods stay in the stash; other eligible tablets can be withdrawn.");
         ImGui::BeginDisabled(controller_.StashCycleActive());
-        ImGui::TextWrapped("Stash filters: tablets matching selected mods stay in the stash. The uses threshold is the minimum required to withdraw a tablet for reforging.");
-        ImGui::InputText("Search tablet mods", bonusSearch_.data(), bonusSearch_.size());
+        ImGui::InputText("Search mods", bonusSearch_.data(), bonusSearch_.size());
         const std::string search = TabletHelper::ToLowerCopy(bonusSearch_.data());
         for (auto& type : types_) {
             if (type.key == TabletHelper::TypeKeys::Global) continue;
-            const std::string header = type.key + " Tablet keep filters (" + std::to_string(type.selectedBonusIds.size()) + " mods)";
+            const std::string header = type.key + " Tablet (" + std::to_string(type.selectedBonusIds.size()) + " keep mods)";
             if (!ImGui::CollapsingHeader(header.c_str())) continue;
             ImGui::PushID(type.key.c_str());
-            int minUses = type.minUsesLeft;
-            if (ImGui::SliderInt("Minimum uses left to withdraw", &minUses, 0, TabletHelperConfig::kMinUsesMax)) {
-                type.minUsesLeft = minUses;
-                SaveSettings();
-            }
-            ImGui::TextDisabled("0 = any uses, 1 = 1+ use, 2 = 2+ uses, etc. Lower-use tablets stay in the stash.");
             if (type.selectedBonusIds.empty()) {
-                ImGui::TextDisabled("No mods selected: all otherwise eligible tablets of this type can be withdrawn.");
+                ImGui::TextDisabled("No keep mods selected.");
             } else {
                 const int maxMatched = (std::min)(TabletHelperConfig::kMinMatchedMax,
                     static_cast<int>(type.selectedBonusIds.size()));
@@ -186,8 +198,7 @@ public:
                     type.minMatchedBonuses = minMatched;
                     SaveSettings();
                 }
-                ImGui::TextDisabled("A tablet with at least %d selected mod(s) stays in the stash.",
-                    (std::min)(type.minMatchedBonuses, static_cast<int>(type.selectedBonusIds.size())));
+                ImGui::TextDisabled("Tablets matching this many selected mods stay in the stash.");
             }
             const auto& bonuses = TabletHelper::GetBonusesFor(type.key);
             for (const auto& bonus : bonuses) {
@@ -211,10 +222,12 @@ public:
             ImGui::PopID();
         }
         ImGui::EndDisabled();
+
+        ImGui::Separator();
         ImGui::Text("Tablets to reforge: %llu", static_cast<unsigned long long>(controller_.SelectedCount()));
         ImGui::BeginDisabled(controller_.StashCycleActive());
         ImGui::BeginDisabled(!allTablets_ || RarityMask() == 0);
-        if (ImGui::Button("Start reforging")) {
+        if (ImGui::Button("Start reforging", ImVec2(190, 32))) {
             const int transferDelayMs = executionSpeed_ <= 10
                 ? 2100 - executionSpeed_ * 200
                 : 100 - (executionSpeed_ - 10) * 9;
@@ -222,7 +235,8 @@ public:
             controller_.RequestStart(ctx(), allTablets_, transferDelayMs, inputPulseMs);
         }
         ImGui::EndDisabled();
-        if (ImGui::Button("Start stash cycle")) {
+        ImGui::SameLine();
+        if (ImGui::Button("Start stash cycle", ImVec2(190, 32))) {
             const int transferDelayMs = executionSpeed_ <= 10
                 ? 2100 - executionSpeed_ * 200
                 : 100 - (executionSpeed_ - 10) * 9;
@@ -230,6 +244,7 @@ public:
             controller_.RequestStashCycle(ctx(), types_, RarityMask(), transferDelayMs, inputPulseMs);
         }
         ImGui::EndDisabled();
+
         if (controller_.StashAwaitingBench() && ImGui::Button("Continue with Reforging Bench"))
             controller_.RequestCycleBench(ctx());
         if (controller_.StashAwaitingStash() && ImGui::Button("Continue at Tablet stash"))
@@ -237,9 +252,14 @@ public:
         if (ImGui::Button("Capture Tablet stash diagnostics"))
             controller_.CaptureStashDiagnostics(ctx(), DirectoryPath());
         ImGui::SameLine();
-        ImGui::TextDisabled("Open the Tablet stash tab first; writes config/tablet-stash-ui.txt.");
-        ImGui::TextWrapped("Inventory mode: open an empty Reforging Bench. Stash cycle: open TABLET+FRAGMENTS > Tablets; available inventory slots are used and unrelated items are left alone. Switch manually between stash and bench when prompted. Only identified tablets in selected categories and rarities are withdrawn. Press Esc to stop.");
+        ImGui::TextDisabled("Open Tablet stash first.");
+
+        ImGui::BeginChild("TabletReforgeStatus", ImVec2(0, 64), true);
+        ImGui::TextUnformatted("Status");
         ImGui::TextWrapped("%s", controller_.Status().c_str());
+        ImGui::EndChild();
+        ImGui::TextDisabled("Open an empty Reforging Bench for inventory mode. For stash mode, open TABLET+FRAGMENTS > Tablets and switch panels when prompted. Press Esc to stop.");
+
         ImGui::PopID();
     }
 
