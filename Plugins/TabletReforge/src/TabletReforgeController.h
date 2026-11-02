@@ -358,10 +358,12 @@ class TabletReforgeController {
                     << ',' << inv.Grid.CellSize << " items=" << inv.Items.size()
                     << " visible_items=" << visible << '\n';
                 for (const auto& item : inv.Items) {
-                    if (!item.ScreenValid) continue;
-                    out << "  item slot=" << item.SlotX << ',' << item.SlotY << " rect="
+                    if (!LooksLikeTablet(item.Path, item.BaseTypeName)) continue;
+                    out << "  tablet slot=" << item.SlotX << ',' << item.SlotY
+                        << " screen_valid=" << item.ScreenValid << " rect="
                         << item.ScreenX << ',' << item.ScreenY << ' ' << item.ScreenW << 'x' << item.ScreenH
                         << " identified=" << item.IsIdentified << " rarity=" << item.Rarity
+                        << " category=" << ClassifyFromText(item.Path, item.BaseTypeName)
                         << " path=" << item.Path << " base=" << item.BaseTypeName << '\n';
                 }
             }
