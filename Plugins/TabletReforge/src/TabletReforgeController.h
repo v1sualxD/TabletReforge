@@ -174,6 +174,27 @@ class TabletReforgeController {
         return c->Game.IsInGame() && !c->Game.IsMenuVisible() && c->Game.GetGameWindow() &&
             ::GetForegroundWindow() == c->Game.GetGameWindow();
     }
+    bool DismissHostWindowForCycle(const PluginSDK::Context* c) {
+        const HWND gameWindow = c ? c->Game.GetGameWindow() : nullptr;
+        HWND foreground = ::GetForegroundWindow();
+        if (!gameWindow || !foreground) return false;
+        if (foreground == gameWindow) return true;
+        const HWND hostWindow = ::GetAncestor(foreground, GA_ROOT);
+        DWORD hostPid = 0, gamePid = 0;
+        if (!hostWindow || hostWindow == gameWindow) return false;
+        ::GetWindowThreadProcessId(hostWindow, &hostPid);
+        ::GetWindowThreadProcessId(gameWindow, &gamePid);
+        if (hostPid != ::GetCurrentProcessId() || !gamePid) return false;
+
+        // The one-shot Escape can be ignored by the POEFixer settings window.
+        // Minimize only our own host window and explicitly hand focus back to PoE2;
+        // this keeps the DLL loaded while allowing the game input sequence to run.
+        ::AllowSetForegroundWindow(gamePid);
+        ::SetForegroundWindow(gameWindow);
+        ::ShowWindow(hostWindow, SW_MINIMIZE);
+        ::SetForegroundWindow(gameWindow);
+        return ::GetForegroundWindow() == gameWindow;
+    }
     static bool Contains(const ScreenRect& r, POINT p) {
         return p.x >= r.x && p.y >= r.y && p.x < r.x + r.w && p.y < r.y + r.h;
     }
@@ -676,6 +697,12 @@ class TabletReforgeController {
         if (stashStage_ == StashStage::AwaitBench || stashStage_ == StashStage::AwaitStash ||
             stashStage_ == StashStage::Finished || stashStage_ == StashStage::Idle ||
             stashStage_ == StashStage::ForgePass) return;
+        if (stashStage_ == StashStage::PendingStart && !Foreground(c)) {
+            if (!DismissHostWindowForCycle(c)) {
+                status_ = "Hiding the POEFixer window and returning focus to Path of Exile 2...";
+                return;
+            }
+        }
         if (!Foreground(c)) return;
         stashInputMode_ = stashStage_ == StashStage::NavigateTab ||
             stashStage_ == StashStage::NavigateCategory || stashStage_ == StashStage::NavigatePage ||
