@@ -90,6 +90,8 @@ class TabletReforgeController {
         if (rule == typeRules.end() || !rule->enabled) return false;
         const auto parsed = parsedCache_.find(item.address);
         if (parsed == parsedCache_.end() || !parsed->second.modsRead) return false;
+        // With the mod filters removed, there is no keep rule: every eligible
+        // tablet of a selected rarity should be considered for a reforge trio.
         if (!TabletHelper::HasFilters(*rule)) return true;
         // If the SDK did not expose any mod identities, do not treat an unreadable
         // tablet as a failed keep filter and risk reforging it by accident.
@@ -102,7 +104,7 @@ class TabletReforgeController {
             const auto config = directory / "config";
             std::filesystem::create_directories(config);
             std::ofstream out(config / "tablet-scan.txt", std::ios::trunc);
-            out << "TabletReforge 0.5.0 inventory scan\n"
+            out << "TabletReforge 0.5.3 inventory scan\n"
                 << "slot_x,slot_y,path,base_type,raw_rarity,raw_identified,mods_valid,mods_rarity,mods_identified,mods_corrupted,category,effective_rarity,effective_identified,effective_corrupted,eligible\n";
             for (const auto& item : inv.Items) {
                 if (!LooksLikeTablet(item.Path, item.BaseTypeName)) continue;
@@ -327,8 +329,65 @@ class TabletReforgeController {
                 outlines_.push_back({*rect, identity.rarity});
         }
     }
+    void CaptureStashDiagnosticsImpl(const PluginSDK::Context* c, const std::filesystem::path& directory) {
+        if (!c) return;
+        try {
+            const auto config = directory / "config";
+            std::filesystem::create_directories(config);
+            std::ofstream out(config / "tablet-stash-ui.txt", std::ios::trunc);
+            if (!out) { status_ = "Could not write config/tablet-stash-ui.txt."; return; }
+            out << "TabletReforge stash UI diagnostics\n"
+                << "Open the Tablet stash tab before capturing. Screen rectangles are client pixels.\n\n";
+
+            const auto tabs = c->Game.EnumerateStashTabs(PluginSDK::StashDomain::Own);
+            out << "Own stash tabs: supported=" << tabs.Supported << " status=" << tabs.Status << '\n';
+            for (const auto& tab : tabs.Tabs)
+                out << "tab index=" << tab.Index << " active=" << tab.IsActive << " onscreen=" << tab.OnScreen
+                    << " rect=" << tab.X << ',' << tab.Y << ' ' << tab.W << 'x' << tab.H
+                    << " name=" << tab.Name << '\n';
+            out << "toggle onscreen=" << tabs.Toggle.OnScreen << " rect=" << tabs.Toggle.X << ','
+                << tabs.Toggle.Y << ' ' << tabs.Toggle.W << 'x' << tabs.Toggle.H << "\n\n";
+
+            out << "Inventories:\n";
+            for (const auto& inv : c->Inventory.GetAll()) {
+                size_t visible = 0;
+                for (const auto& item : inv.Items) if (item.ScreenValid) ++visible;
+                out << "id=" << inv.InventoryId << " name=" << c->Inventory.GetName(inv.InventoryId)
+                    << " size=" << inv.TotalBoxesX << 'x' << inv.TotalBoxesY
+                    << " grid=" << inv.Grid.Valid << ':' << inv.Grid.GridScreenX << ',' << inv.Grid.GridScreenY
+                    << ',' << inv.Grid.CellSize << " items=" << inv.Items.size()
+                    << " visible_items=" << visible << '\n';
+                for (const auto& item : inv.Items) {
+                    if (!item.ScreenValid) continue;
+                    out << "  item slot=" << item.SlotX << ',' << item.SlotY << " rect="
+                        << item.ScreenX << ',' << item.ScreenY << ' ' << item.ScreenW << 'x' << item.ScreenH
+                        << " identified=" << item.IsIdentified << " rarity=" << item.Rarity
+                        << " path=" << item.Path << " base=" << item.BaseTypeName << '\n';
+                }
+            }
+
+            out << "\nVisible UI tree (max 8000 nodes):\n";
+            std::vector<BenchNode> nodes;
+            int budget = 8000;
+            ReadUi(c, c->Ui.GetGameUiRoot(), -1, 0, budget, nodes);
+            for (size_t i = 0; i < nodes.size(); ++i) {
+                const auto& n = nodes[i];
+                out << i << " parent=" << n.parent << " addr=" << n.address
+                    << " name=[" << n.name << "] string_id=[" << n.text << "] text=["
+                    << c->Ui.GetText(n.address) << "] rect=" << n.x << ',' << n.y << ' '
+                    << n.w << 'x' << n.h << '\n';
+            }
+            out << "remaining_node_budget=" << budget << '\n';
+            status_ = "Stash UI diagnostics saved to config/tablet-stash-ui.txt.";
+        } catch (...) {
+            status_ = "Could not capture stash UI diagnostics.";
+        }
+    }
 public:
     ~TabletReforgeController() { ReleaseInput(); }
+    void CaptureStashDiagnostics(const PluginSDK::Context* c, const std::filesystem::path& directory) {
+        CaptureStashDiagnosticsImpl(c, directory);
+    }
     bool Running() const { return phase_ != Phase::Idle; }
     bool Busy() const { return pending_ || Running(); }
     size_t SelectedCount() const { return displayedCount_; }

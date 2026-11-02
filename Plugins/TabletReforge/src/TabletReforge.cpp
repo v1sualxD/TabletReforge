@@ -35,7 +35,7 @@ uint8_t MakeRarityMask(bool normal, bool magic, bool rare) {
 POEFIXER_PLUGIN_INFO(
     "TabletReforge",
     "Tablet Reforge",
-    "0.5.3",
+    "0.5.4",
     "TabletReforge contributors; Omer Faruk ARPA; POEFixer",
     "Reforge identified tablets by rarity in matching category trios, collect results without reusing unidentified tablets, and display tablet types.")
 
@@ -146,6 +146,10 @@ public:
         }
         ImGui::EndDisabled();
         ImGui::EndDisabled();
+        if (ImGui::Button("Capture Tablet stash diagnostics"))
+            controller_.CaptureStashDiagnostics(ctx(), DirectoryPath());
+        ImGui::SameLine();
+        ImGui::TextDisabled("Open the Tablet stash tab first; writes config/tablet-stash-ui.txt.");
         ImGui::TextWrapped("Open an empty Reforging Bench first. Only trios of the same category and rarity are used. Unidentified results are never selected. Press Esc to stop.");
         ImGui::TextWrapped("%s", controller_.Status().c_str());
         ImGui::PopID();
