@@ -3,11 +3,13 @@
 #include "TabletEligibility.h"
 #include "TabletMatch.h"
 #include "ReforgeUiDiscovery.h"
+#include "TabletStashDiscovery.h"
 #include <Windows.h>
 #include <chrono>
 #include <fstream>
 #include <map>
 #include <optional>
+#include <unordered_set>
 
 
 namespace TabletHelper {
@@ -16,6 +18,8 @@ struct TabletOutline { ScreenRect rect; int rarity = 0; };
 class TabletReforgeController {
     using Clock = std::chrono::steady_clock;
     enum class Phase { Idle, InitialScan, Transfer, WaitTransfer, Forge, WaitForge, PlaceResult, WaitResult };
+    enum class StashStage { Idle, PendingStart, NavigateTab, NavigateCategory, NavigatePage,
+        ReadPage, Pull, WaitPull, AwaitBench, AwaitStash, Deposit, WaitDeposit, Finished };
     Phase phase_ = Phase::Idle;
     std::vector<TabletOutline> outlines_;
     std::vector<TabletLabel> labels_;
@@ -28,6 +32,22 @@ class TabletReforgeController {
     HWND selectionWindow_ = nullptr, window_ = nullptr;
     LONG width_ = 0, height_ = 0;
     std::optional<BenchTargets> targets_;
+    std::optional<TabletStashTargets> stashTargets_;
+    StashStage stashStage_ = StashStage::Idle;
+    bool stashCycle_ = false, stashInputMode_ = false, stashTabSelected_ = false, stashDepositInit_ = false;
+    bool stashResumeForDeposit_ = false;
+    uint8_t stashRarityMask_ = 0;
+    std::vector<std::string> stashCategories_;
+    std::vector<TabletHelperConfig::TypeConfig> stashTypeRules_;
+    size_t stashCategory_ = 0, stashPage_ = 0;
+    std::optional<ReforgeItem> stashPendingItem_;
+    std::optional<uintptr_t> stashDepositItem_;
+    std::map<uintptr_t, ReforgeItem> stashExpectedBag_;
+    std::unordered_set<uintptr_t> stashSessionAddresses_;
+    int stashUiCategory_ = -1, stashUiPage_ = -1;
+    uint64_t stashBagStamp_ = 0;
+    Clock::time_point stashActionAt_{};
+    bool stashFromExhaustion_ = false;
     std::map<uintptr_t, ReforgeItem> expected_;
     std::vector<ReforgeBatch> batches_;
     size_t batch_ = 0, item_ = 0;
@@ -82,6 +102,7 @@ class TabletReforgeController {
     }
     bool ReforgeCandidate(const ReforgeItem& item, uint8_t rarityMask,
                           const std::vector<TabletHelperConfig::TypeConfig>& typeRules) const {
+        if (stashCycle_ && !stashSessionAddresses_.contains(item.address)) return false;
         if (!EligibleTablet(item, rarityMask)) return false;
         const std::string category = TabletCategory(item);
         const auto rule = std::find_if(typeRules.begin(), typeRules.end(), [&](const auto& t) {
@@ -192,6 +213,33 @@ class TabletReforgeController {
         } catch (...) {}
         return false;
     }
+    bool AttachTabletStash(const PluginSDK::Context* c, const std::filesystem::path& directory) {
+        window_ = c->Game.GetGameWindow();
+        RECT client{};
+        if (!window_ || !::GetClientRect(window_, &client)) return false;
+        width_ = client.right; height_ = client.bottom;
+        const auto tabs = c->Game.EnumerateStashTabs(PluginSDK::StashDomain::Own);
+        const bool tabletTabActive = tabs.IsOpen() && std::any_of(tabs.Tabs.begin(), tabs.Tabs.end(),
+            [](const auto& tab) { return tab.IsActive == 1 && NormalizeIdentifier(tab.Name) == "tabletfragments"; });
+        if (!tabletTabActive) return false;
+        std::vector<BenchNode> nodes;
+        int budget = 8000;
+        ReadUi(c, c->Ui.GetGameUiRoot(), -1, 0, budget, nodes);
+        stashTargets_ = budget > 0 ? DiscoverTabletStash(nodes) : std::nullopt;
+        if (stashTargets_) return true;
+        try {
+            std::filesystem::create_directories(directory / "config");
+            std::ofstream out(directory / "tablet-stash-discovery.txt", std::ios::trunc);
+            out << "TabletReforge stash discovery failed; nodes=" << nodes.size()
+                << "; remaining_budget=" << budget << '\n';
+            for (size_t i = 0; i < nodes.size(); ++i) {
+                const auto& n = nodes[i];
+                out << i << " parent=" << n.parent << " [" << n.name << "] [" << n.text << "] "
+                    << n.x << ',' << n.y << ' ' << n.w << 'x' << n.h << '\n';
+            }
+        } catch (...) {}
+        return false;
+    }
     bool LiveNode(const PluginSDK::Context* c, const BenchNode& expected, uintptr_t ancestor) const {
         const auto element = c->Ui.Read(expected.address);
         if (!element.Valid || !c->Ui.IsVisible(expected.address)) return false;
@@ -213,6 +261,17 @@ class TabletReforgeController {
         return false;
     }
     bool Ready(const PluginSDK::Context* c) const {
+        if (stashInputMode_) {
+            if (!stashTargets_ || !Foreground(c) || c->Game.GetGameWindow() != window_ ||
+                c->Game.GetAreaChangeCounter() != area_ || c->Game.IsHostAutomationActive()) return false;
+            const auto tabs = c->Game.EnumerateStashTabs(PluginSDK::StashDomain::Own);
+            if (!tabs.IsOpen() || std::none_of(tabs.Tabs.begin(), tabs.Tabs.end(), [](const auto& tab) {
+                return tab.IsActive == 1 && NormalizeIdentifier(tab.Name) == "tabletfragments";
+            })) return false;
+            RECT client{};
+            return ::GetClientRect(window_, &client) && client.right == width_ && client.bottom == height_ &&
+                LiveNode(c, stashTargets_->tabletTab, c->Ui.GetGameUiRoot());
+        }
         if (!targets_ || !Foreground(c) || c->Game.GetGameWindow() != window_ ||
             c->Game.GetAreaChangeCounter() != area_ || c->Game.IsHostAutomationActive()) return false;
         RECT client{};
@@ -272,7 +331,7 @@ class TabletReforgeController {
     }
     bool PumpInput(const PluginSDK::Context* c) {
         if (inputPhase_ == InputPhase::Idle) return false;
-        if (!Ready(c)) { Stop("Stopped: game focus or bench panel changed during a click."); return true; }
+        if (!Ready(c)) { Stop("Stopped: game focus or automation panel changed during a click."); return true; }
         const auto now = Clock::now();
         if (now < inputDue_) return true;
         INPUT event{};
@@ -299,6 +358,264 @@ class TabletReforgeController {
         phase_ = next; stamp_ = stamp; actionAt_ = Clock::now();
         deadline_ = actionAt_ + std::chrono::seconds(6);
         c->Inventory.Scan(1);
+    }
+    void PauseCycleForBench(const char* message) {
+        ReleaseInput(); phase_ = Phase::Idle; pending_ = false; targets_.reset();
+        stashInputMode_ = false; stashTargets_.reset(); stashStage_ = StashStage::AwaitBench;
+        stashActionAt_ = Clock::now(); status_ = message;
+    }
+    void PauseCycleForStash(const char* message) {
+        ReleaseInput(); phase_ = Phase::Idle; pending_ = false; targets_.reset();
+        stashInputMode_ = false; stashTargets_.reset(); stashStage_ = StashStage::AwaitStash;
+        stashActionAt_ = Clock::now(); status_ = message;
+    }
+    bool CycleHasBatch(const PluginSDK::Context* c, const PluginSDK::InventorySnapshot& snapshot) {
+        if (!snapshot.Ready) return false;
+        const auto& bag = Bag(c, snapshot.Value, snapshot.AreaChangeCounter, snapshot.ScanStamp);
+        std::vector<ReforgeItem> candidates;
+        for (const auto& [address, item] : bag) {
+            (void)address;
+            if (ReforgeCandidate(item, stashRarityMask_, stashTypeRules_)) candidates.push_back(item);
+        }
+        return !PlanReforge(std::move(candidates)).empty();
+    }
+    void AdvanceStashPage(const PluginSDK::Context* c) {
+        if (++stashPage_ >= 6) { stashPage_ = 0; ++stashCategory_; }
+        stashUiCategory_ = stashUiPage_ = -1;
+        if (stashCategory_ < stashCategories_.size()) {
+            stashStage_ = StashStage::NavigateCategory;
+            return;
+        }
+        stashFromExhaustion_ = true;
+        const auto snapshot = c->Inventory.ReadSnapshot(1);
+        if (CycleHasBatch(c, snapshot)) {
+            PauseCycleForBench("Selected stash pages scanned. Open the Reforging Bench and click Continue with bench.");
+        } else if (snapshot.Ready && std::none_of(snapshot.Value.Items.begin(), snapshot.Value.Items.end(), [&](const auto& item) {
+            return stashSessionAddresses_.contains(item.Address);
+        })) {
+            stashStage_ = StashStage::Finished;
+            stashCycle_ = false;
+            status_ = "Finished: no compatible identified trio remained in the selected stash categories.";
+        } else {
+            PauseCycleForStash("No compatible trio remains. Return tablets to the selected stash pages, then click Continue at stash.");
+        }
+    }
+    void TickStash(const PluginSDK::Context* c, const std::filesystem::path& directory) {
+        if (stashStage_ == StashStage::AwaitBench || stashStage_ == StashStage::AwaitStash ||
+            stashStage_ == StashStage::Finished || stashStage_ == StashStage::Idle) return;
+        if (Clock::now() > requestExpires_) { Stop("Stash step cancelled: close the POEFixer menu within 30 seconds."); return; }
+        if (!Foreground(c)) return;
+        stashInputMode_ = true;
+        if (PumpInput(c)) return;
+
+        const auto now = Clock::now();
+        if (stashStage_ == StashStage::PendingStart) {
+            if (c->Game.IsHostAutomationActive() || !AttachTabletStash(c, directory)) {
+                Stop("Tablet stash not recognized. Open TABLET+FRAGMENTS > Tablets; see config/tablet-stash-discovery.txt."); return;
+            }
+            const auto snapshot = c->Inventory.ReadSnapshot(1);
+            if (!snapshot.Supported) { Stop("This POEFixer version does not provide inventory snapshots."); return; }
+            if (!snapshot.Ready) { c->Inventory.Scan(1); return; }
+            if (!FirstFreeInventoryCell(snapshot.Value)) {
+                Stop("No free inventory slot. Clear space before starting the stash cycle."); return;
+            }
+            area_ = snapshot.AreaChangeCounter; stashExpectedBag_ = Bag(c, snapshot.Value,
+                snapshot.AreaChangeCounter, snapshot.ScanStamp); stashSessionAddresses_.clear();
+            stashTabSelected_ = false; stashUiCategory_ = stashUiPage_ = -1;
+            stashStage_ = StashStage::NavigateTab; stashActionAt_ = now;
+        }
+        if (now - stashActionAt_ < std::chrono::milliseconds(250)) return;
+
+        if (stashStage_ == StashStage::NavigateTab || stashStage_ == StashStage::NavigateCategory ||
+            stashStage_ == StashStage::NavigatePage || stashStage_ == StashStage::ReadPage ||
+            stashStage_ == StashStage::Pull || stashStage_ == StashStage::WaitPull ||
+            stashStage_ == StashStage::Deposit || stashStage_ == StashStage::WaitDeposit) {
+            if (!AttachTabletStash(c, directory)) {
+                Stop("Tablet stash controls changed or could not be identified. No further clicks sent."); return;
+            }
+        }
+        const auto snapshot = c->Inventory.ReadSnapshot(1);
+        if (!snapshot.Supported || !snapshot.Ready || snapshot.AreaChangeCounter != area_) {
+            c->Inventory.Scan(1); return;
+        }
+        const auto& bag = Bag(c, snapshot.Value, snapshot.AreaChangeCounter, snapshot.ScanStamp);
+
+        if (stashStage_ == StashStage::NavigateTab) {
+            const auto& tab = stashTargets_->tabletTab;
+            if (!Click(c, {static_cast<LONG>(tab.CenterX()), static_cast<LONG>(tab.CenterY())}, false)) {
+                Stop("Could not select the Tablet subtab. No items moved."); return;
+            }
+            stashTabSelected_ = true;
+            stashStage_ = stashResumeForDeposit_ ? StashStage::Deposit : StashStage::NavigateCategory;
+            stashResumeForDeposit_ = false; stashActionAt_ = now;
+            return;
+        }
+        if (stashStage_ == StashStage::NavigateCategory) {
+            if (stashCategory_ >= stashCategories_.size()) { AdvanceStashPage(c); return; }
+            const auto canonical = std::find_if(StashCategoryOrder.begin(), StashCategoryOrder.end(), [&](const char* key) {
+                return stashCategories_[stashCategory_] == key;
+            });
+            if (canonical == StashCategoryOrder.end()) { Stop("Unknown tablet category selection."); return; }
+            const auto index = static_cast<size_t>(canonical - StashCategoryOrder.begin());
+            if (stashUiCategory_ != static_cast<int>(index)) {
+                const auto& button = stashTargets_->categories[index];
+                if (!Click(c, {static_cast<LONG>(button.CenterX()), static_cast<LONG>(button.CenterY())}, false)) {
+                    Stop("Could not select a Tablet stash category. No items moved."); return;
+                }
+                stashUiCategory_ = static_cast<int>(index); stashUiPage_ = -1; stashActionAt_ = now; return;
+            }
+            stashStage_ = StashStage::NavigatePage;
+        }
+        if (stashStage_ == StashStage::NavigatePage) {
+            if (stashUiPage_ != static_cast<int>(stashPage_)) {
+                const auto& button = stashTargets_->pages[stashPage_];
+                if (!Click(c, {static_cast<LONG>(button.CenterX()), static_cast<LONG>(button.CenterY())}, false)) {
+                    Stop("Could not select a Tablet stash page. No items moved."); return;
+                }
+                stashUiPage_ = static_cast<int>(stashPage_); stashActionAt_ = now; return;
+            }
+            stashStage_ = StashStage::ReadPage;
+        }
+        if (stashStage_ == StashStage::ReadPage || stashStage_ == StashStage::Pull) {
+            if (FirstFreeInventoryCell(snapshot.Value) == std::nullopt) {
+                if (CycleHasBatch(c, snapshot))
+                    PauseCycleForBench("Inventory filled. Open the Reforging Bench and click Continue with bench.");
+                else {
+                    stashFromExhaustion_ = true;
+                    PauseCycleForStash("Inventory is full but has no compatible trio. Return it to stash and adjust categories or rarity.");
+                }
+                return;
+            }
+            const auto match = MatchVisibleStashPage(*stashTargets_, c->Inventory.GetAll(), stashCategories_[stashCategory_]);
+            if (match.state == TabletStashPageMatchState::Ambiguous || match.state == TabletStashPageMatchState::Missing) {
+                Stop("Could not uniquely match the visible stash page to POEFixer inventory data. No item clicked."); return;
+            }
+            if (match.state == TabletStashPageMatchState::Empty) { AdvanceStashPage(c); return; }
+            std::vector<const PluginSDK::InventoryItem*> candidates;
+            for (const auto& item : match.inventory.Items) {
+                const auto identity = Identity(c, item);
+                if (TabletCategory(identity) == stashCategories_[stashCategory_] &&
+                    EligibleTablet(identity, stashRarityMask_)) candidates.push_back(&item);
+            }
+            std::sort(candidates.begin(), candidates.end(), [](const auto* a, const auto* b) {
+                return a->SlotY == b->SlotY ? a->SlotX < b->SlotX : a->SlotY < b->SlotY;
+            });
+            if (candidates.empty()) { AdvanceStashPage(c); return; }
+            const auto* item = candidates.front();
+            const auto point = TabletStashSlotCenter(*stashTargets_, item->SlotX, item->SlotY);
+            if (!point || !Click(c, *point, true)) { Stop("Could not safely Ctrl-click a stash tablet."); return; }
+            stashPendingItem_ = Identity(c, *item); stashExpectedBag_ = bag;
+            stashBagStamp_ = snapshot.ScanStamp;
+            stashStage_ = StashStage::WaitPull; stashActionAt_ = now;
+            status_ = "Withdrawing selected identified tablets from stash...";
+            c->Inventory.Scan(1); return;
+        }
+        if (stashStage_ == StashStage::WaitPull) {
+            if (snapshot.ScanStamp == stashBagStamp_) { c->Inventory.Scan(1); return; }
+            if (bag.size() != stashExpectedBag_.size() + 1) {
+                Stop("Stash Ctrl-click did not add exactly one inventory item. Check the inventory before restarting."); return;
+            }
+            auto additions = bag;
+            for (const auto& [address, old] : stashExpectedBag_) {
+                const auto it = additions.find(address);
+                if (it == additions.end() || it->second != old) { Stop("Inventory changed unexpectedly during stash withdrawal."); return; }
+                additions.erase(it);
+            }
+            const auto& received = additions.begin()->second;
+            if (!stashPendingItem_ || TabletCategory(received) != TabletCategory(*stashPendingItem_) ||
+                received.rarity != stashPendingItem_->rarity || !received.identified) {
+                Stop("Withdrawn item did not match the identified tablet selected in stash."); return;
+            }
+            stashSessionAddresses_.insert(additions.begin()->first);
+            stashExpectedBag_ = bag; stashPendingItem_.reset(); stashStage_ = StashStage::ReadPage;
+            stashActionAt_ = now; return;
+        }
+
+        if (stashStage_ == StashStage::Deposit || stashStage_ == StashStage::WaitDeposit) {
+            if (!stashDepositInit_) { stashExpectedBag_ = bag; stashDepositInit_ = true; }
+            if (stashStage_ == StashStage::WaitDeposit) {
+                if (snapshot.ScanStamp == stashBagStamp_) { c->Inventory.Scan(1); return; }
+                if (bag.size() + 1 != stashExpectedBag_.size()) {
+                    Stop("Stash deposit did not remove exactly one inventory item."); return;
+                }
+                auto remaining = stashExpectedBag_;
+                const auto address = *stashDepositItem_;
+                if (remaining.erase(address) != 1 || remaining.size() != bag.size()) {
+                    Stop("Unexpected inventory change during stash deposit."); return;
+                }
+                for (const auto& [itemAddress, identity] : remaining) {
+                    const auto it = bag.find(itemAddress);
+                    if (it == bag.end() || it->second != identity) { Stop("Inventory changed during stash deposit."); return; }
+                }
+                stashSessionAddresses_.erase(address);
+                stashExpectedBag_ = bag; stashDepositItem_.reset(); stashStage_ = StashStage::Deposit;
+                stashActionAt_ = now;
+            }
+            const bool hasSessionItem = std::any_of(snapshot.Value.Items.begin(), snapshot.Value.Items.end(), [&](const auto& entry) {
+                return stashSessionAddresses_.contains(entry.Address);
+            });
+            if (!hasSessionItem) {
+                if (stashFromExhaustion_) {
+                    stashStage_ = StashStage::Finished; stashCycle_ = false; stashInputMode_ = false;
+                    status_ = "Finished: all selected stash pages were processed; results and leftovers returned.";
+                } else {
+                    stashCategory_ = stashPage_ = 0; stashUiCategory_ = stashUiPage_ = -1;
+                    stashTabSelected_ = true; stashStage_ = StashStage::NavigateCategory;
+                    stashActionAt_ = now; status_ = "Results returned. Scanning selected stash pages again...";
+                }
+                return;
+            }
+            const auto item = std::find_if(snapshot.Value.Items.begin(), snapshot.Value.Items.end(), [&](const auto& entry) {
+                return stashSessionAddresses_.contains(entry.Address) && bag.find(entry.Address) != bag.end();
+            });
+            if (item == snapshot.Value.Items.end() || !LooksLikeTablet(item->Path, item->BaseTypeName)) {
+                Stop("Only session tablets can be returned automatically; unexpected inventory item found."); return;
+            }
+            const std::string category = ClassifyFromText(item->Path, item->BaseTypeName);
+            const auto categoryIt = std::find(StashCategoryOrder.begin(), StashCategoryOrder.end(), category);
+            if (categoryIt == StashCategoryOrder.end()) { Stop("Could not identify the result tablet category for stash return."); return; }
+            const size_t categoryIndex = static_cast<size_t>(categoryIt - StashCategoryOrder.begin());
+            if (stashUiCategory_ != static_cast<int>(categoryIndex)) {
+                const auto& button = stashTargets_->categories[categoryIndex];
+                if (!Click(c, {static_cast<LONG>(button.CenterX()), static_cast<LONG>(button.CenterY())}, false)) {
+                    Stop("Could not select the result's stash category."); return;
+                }
+                stashUiCategory_ = static_cast<int>(categoryIndex); stashUiPage_ = -1; stashActionAt_ = now; return;
+            }
+            if (stashUiPage_ < 0) {
+                stashUiPage_ = 0;
+                const auto& page = stashTargets_->pages[0];
+                if (!Click(c, {static_cast<LONG>(page.CenterX()), static_cast<LONG>(page.CenterY())}, false)) {
+                    Stop("Could not select a stash destination page."); return;
+                }
+                stashActionAt_ = now; return;
+            }
+            const auto pageMatch = MatchVisibleStashPage(*stashTargets_, c->Inventory.GetAll(), category);
+            // Empty pages are valid deposit targets. Non-empty pages need a unique
+            // page-to-inventory match before we can decide whether they have room.
+            if (pageMatch.state == TabletStashPageMatchState::Ambiguous || pageMatch.state == TabletStashPageMatchState::Missing) {
+                Stop("Could not verify Tablet stash space for returning results."); return;
+            }
+            if (pageMatch.state == TabletStashPageMatchState::Matched && pageMatch.inventory.Items.size() >= 96) {
+                if (stashUiPage_ < 5) {
+                    const size_t nextPage = static_cast<size_t>(stashUiPage_ + 1);
+                    const auto& page = stashTargets_->pages[nextPage];
+                    if (!Click(c, {static_cast<LONG>(page.CenterX()), static_cast<LONG>(page.CenterY())}, false)) {
+                        Stop("Could not find free space on another stash page."); return;
+                    }
+                    stashUiPage_ = static_cast<int>(nextPage); stashActionAt_ = now; return;
+                }
+                Stop("All six pages of this Tablet category appear full. Free a stash slot and restart."); return;
+            }
+            const auto rect = ResolveItemRect(snapshot.Value, *item, HasItemRects(snapshot.Value), true,
+                static_cast<float>(width_), static_cast<float>(height_));
+            if (!rect || !Click(c, {static_cast<LONG>(rect->x + rect->w / 2),
+                static_cast<LONG>(rect->y + rect->h / 2)}, true)) {
+                Stop("Could not safely Ctrl-click a result back into the stash."); return;
+            }
+            stashExpectedBag_ = bag; stashDepositItem_ = item->Address; stashBagStamp_ = snapshot.ScanStamp;
+            stashStage_ = StashStage::WaitDeposit; stashActionAt_ = now; c->Inventory.Scan(1); return;
+        }
     }
     void Preview(const PluginSDK::Context* c, bool all, uint8_t rarityMask,
                  const std::vector<TabletHelperConfig::TypeConfig>& typeRules) {
@@ -395,12 +712,23 @@ public:
         CaptureStashDiagnosticsImpl(c, directory);
     }
     bool Running() const { return phase_ != Phase::Idle; }
-    bool Busy() const { return pending_ || Running(); }
+    bool StashAwaitingBench() const { return stashCycle_ && stashStage_ == StashStage::AwaitBench; }
+    bool StashAwaitingStash() const { return stashCycle_ && stashStage_ == StashStage::AwaitStash; }
+    bool StashCycleActive() const { return stashCycle_ && stashStage_ != StashStage::Finished; }
+    bool Busy() const {
+        if (pending_ || Running()) return true;
+        return stashCycle_ && stashStage_ != StashStage::Idle && stashStage_ != StashStage::AwaitBench &&
+            stashStage_ != StashStage::AwaitStash && stashStage_ != StashStage::Finished;
+    }
     size_t SelectedCount() const { return displayedCount_; }
     const std::vector<TabletOutline>& Outlines() const { return outlines_; }
     const std::vector<TabletLabel>& Labels() const { return labels_; }
     const std::string& Status() const { return status_; }
-    void Stop(const char* reason) { ReleaseInput(); phase_ = Phase::Idle; pending_ = false; targets_.reset(); status_ = reason; }
+    void Stop(const char* reason) {
+        ReleaseInput(); phase_ = Phase::Idle; pending_ = false; targets_.reset(); stashTargets_.reset();
+        stashCycle_ = false; stashInputMode_ = false; stashStage_ = StashStage::Idle;
+        stashPendingItem_.reset(); status_ = reason;
+    }
     void Reset() { Stop("Open an empty Reforging Bench, then press Start reforging."); outlines_.clear(); labels_.clear(); displayedCount_ = 0; }
     void RequestStart(const PluginSDK::Context* c, bool all, int inputTransferDelayMs, int inputPulseMs) {
         if (Busy()) return;
@@ -410,6 +738,49 @@ public:
         area_ = c->Game.GetAreaChangeCounter(); window_ = c->Game.GetGameWindow();
         requestExpires_ = Clock::now() + std::chrono::seconds(30);
         status_ = "Close the POEFixer menu to start. Keep the empty Reforging Bench open. Esc cancels.";
+    }
+    void RequestStashCycle(const PluginSDK::Context* c, const std::vector<TabletHelperConfig::TypeConfig>& typeRules,
+                           uint8_t rarityMask, int transferDelayMs, int pulseMs) {
+        if (Busy() || stashCycle_) return;
+        stashCategories_.clear();
+        for (const auto* key : StashCategoryOrder) {
+            const auto rule = std::find_if(typeRules.begin(), typeRules.end(), [&](const auto& item) {
+                return item.key == key && item.enabled;
+            });
+            if (rule != typeRules.end()) stashCategories_.emplace_back(key);
+        }
+        if (stashCategories_.empty() || rarityMask == 0) {
+            status_ = "Select at least one tablet category and rarity before starting."; return;
+        }
+        stashCycle_ = true; stashStage_ = StashStage::PendingStart;
+        stashTypeRules_ = typeRules;
+        stashResumeForDeposit_ = false;
+        stashRarityMask_ = rarityMask; stashCategory_ = stashPage_ = 0;
+        stashTabSelected_ = false; stashPendingItem_.reset(); stashFromExhaustion_ = false;
+        all_ = true; inputTransferDelayMs_ = std::clamp(transferDelayMs, 10, 1900);
+        inputPulseMs_ = std::clamp(pulseMs, 20, 40);
+        area_ = c->Game.GetAreaChangeCounter(); window_ = c->Game.GetGameWindow();
+        requestExpires_ = Clock::now() + std::chrono::seconds(30);
+        status_ = "Keep TABLET+FRAGMENTS open on Tablets. Close the POEFixer menu to scan selected categories.";
+    }
+    void RequestCycleBench(const PluginSDK::Context* c) {
+        if (!StashAwaitingBench()) return;
+        stashStage_ = StashStage::Idle; stashInputMode_ = false;
+        stashFromExhaustion_ = false;
+        RequestStart(c, true, inputTransferDelayMs_, inputPulseMs_);
+        if (pending_) status_ = "Open the Reforging Bench and close the POEFixer menu. Esc cancels.";
+    }
+    void RequestCycleStash(const PluginSDK::Context* c) {
+        if (!StashAwaitingStash()) return;
+        stashInputMode_ = true; stashTabSelected_ = false;
+        stashUiCategory_ = stashUiPage_ = -1; stashDepositInit_ = false;
+        stashResumeForDeposit_ = true;
+        if (!stashFromExhaustion_) stashCategory_ = stashPage_ = 0;
+        stashStage_ = StashStage::NavigateTab;
+        area_ = c->Game.GetAreaChangeCounter(); window_ = c->Game.GetGameWindow();
+        stashActionAt_ = Clock::now();
+        status_ = "Open TABLET+FRAGMENTS on Tablets, then close the POEFixer menu to return results and continue.";
+        requestExpires_ = Clock::now() + std::chrono::seconds(30);
     }
     void Tick(const PluginSDK::Context* c, bool all, uint8_t rarityMask,
               const std::vector<TabletHelperConfig::TypeConfig>& typeRules,
@@ -421,6 +792,10 @@ public:
         }
         if (pending_ && now > requestExpires_) { Stop("Start cancelled: the menu was not closed within 30 seconds."); return; }
         if (!c->Game.IsInGame()) { outlines_.clear(); labels_.clear(); displayedCount_ = 0; return; }
+        if (stashCycle_ && stashStage_ != StashStage::Idle && stashStage_ != StashStage::AwaitBench &&
+            stashStage_ != StashStage::AwaitStash && stashStage_ != StashStage::Finished) {
+            TickStash(c, directory); return;
+        }
         if (PumpInput(c)) return;
         if (!Busy()) Preview(c, all, rarityMask, typeRules); else { outlines_.clear(); labels_.clear(); }
         if (now >= nextScan_) {
@@ -464,6 +839,11 @@ public:
                 WriteScanDiagnostic(c, inv, bag, directory);
                 const auto message = "No compatible trio found among " + std::to_string(eligibleCount) +
                     " eligible tablets. Requires three of the same category and rarity. See config/tablet-scan.txt.";
+                if (stashCycle_) {
+                    stashFromExhaustion_ = true;
+                    PauseCycleForStash("No compatible trio in the inventory. Return the remaining tablets to stash to finish.");
+                    return;
+                }
                 Stop(message.c_str());
                 return;
             }
@@ -534,8 +914,16 @@ public:
                 additions.begin()->second.rarity != batches_[batch_][0].rarity) {
                 Stop("Stopped: unexpected result. Check the bench before restarting."); return;
             }
+            if (stashCycle_) {
+                for (const auto& tablet : batches_[batch_]) stashSessionAddresses_.erase(tablet.address);
+                stashSessionAddresses_.insert(additions.begin()->first);
+            }
             expected_ = bag;
             if (++batch_ == batches_.size()) {
+                if (stashCycle_) {
+                    PauseCycleForStash("Reforge pass complete. Return all results to the Tablet stash, then click Continue at stash.");
+                    return;
+                }
                 const auto count = batches_.size(); Stop("Finished.");
                 status_ = "Finished: " + std::to_string(count) + " batch(es). Results returned to inventory."; return;
             }

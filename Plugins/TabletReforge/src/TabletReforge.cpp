@@ -36,7 +36,7 @@ uint8_t MakeRarityMask(bool normal, bool magic, bool rare) {
 POEFIXER_PLUGIN_INFO(
     "TabletReforge",
     "Tablet Reforge",
-    "0.5.7",
+    "0.5.8",
     "TabletReforge contributors; Omer Faruk ARPA; POEFixer",
     "Reforge identified tablets by rarity in matching category trios, collect results without reusing unidentified tablets, and display tablet types.")
 
@@ -133,7 +133,7 @@ public:
         ImGui::SetCurrentContext(static_cast<ImGuiContext*>(ctx()->ImGuiContext));
         ImGui::PushID("TabletReforge");
         ImGui::TextWrapped("Choose rarities to process. The plugin groups tablets by their category and rarity, then reforges matching trios of three.");
-        ImGui::BeginDisabled(controller_.Busy());
+        ImGui::BeginDisabled(controller_.Busy() || controller_.StashCycleActive());
         if (ImGui::Checkbox("All tablets in inventory", &allTablets_)) SaveSettings();
         ImGui::Text("Tablet categories to process");
         for (const auto* category : TabletHelper::StashCategoryOrder) {
@@ -142,7 +142,7 @@ public:
             });
             if (type != types_.end() && ImGui::Checkbox(category, &type->enabled)) SaveSettings();
         }
-        ImGui::TextDisabled("Only checked categories and rarities are reforged. Stash cycling is not available yet.");
+        ImGui::TextDisabled("Checked categories and rarities are used for both inventory reforging and stash cycling.");
         ImGui::Text("Rarities to process");
         if (ImGui::Checkbox("Normal", &normal_)) SaveSettings();
         ImGui::SameLine();
@@ -153,6 +153,7 @@ public:
         ImGui::TextDisabled("Highlights: Normal gray, Magic blue, Rare yellow. Result pickup waits 0.7 seconds.");
         if (ImGui::Checkbox("Highlight tablet types", &showTabletTypes_)) SaveSettings();
         ImGui::Text("Tablets to reforge: %llu", static_cast<unsigned long long>(controller_.SelectedCount()));
+        ImGui::BeginDisabled(controller_.StashCycleActive());
         ImGui::BeginDisabled(!allTablets_ || RarityMask() == 0);
         if (ImGui::Button("Start reforging")) {
             const int transferDelayMs = executionSpeed_ <= 10
@@ -162,12 +163,23 @@ public:
             controller_.RequestStart(ctx(), allTablets_, transferDelayMs, inputPulseMs);
         }
         ImGui::EndDisabled();
+        if (ImGui::Button("Start stash cycle")) {
+            const int transferDelayMs = executionSpeed_ <= 10
+                ? 2100 - executionSpeed_ * 200
+                : 100 - (executionSpeed_ - 10) * 9;
+            const int inputPulseMs = executionSpeed_ <= 10 ? 40 : 40 - (executionSpeed_ - 10) * 2;
+            controller_.RequestStashCycle(ctx(), types_, RarityMask(), transferDelayMs, inputPulseMs);
+        }
         ImGui::EndDisabled();
+        if (controller_.StashAwaitingBench() && ImGui::Button("Continue with Reforging Bench"))
+            controller_.RequestCycleBench(ctx());
+        if (controller_.StashAwaitingStash() && ImGui::Button("Continue at Tablet stash"))
+            controller_.RequestCycleStash(ctx());
         if (ImGui::Button("Capture Tablet stash diagnostics"))
             controller_.CaptureStashDiagnostics(ctx(), DirectoryPath());
         ImGui::SameLine();
         ImGui::TextDisabled("Open the Tablet stash tab first; writes config/tablet-stash-ui.txt.");
-        ImGui::TextWrapped("Open an empty Reforging Bench first. Only trios of the same category and rarity are used. Unidentified results are never selected. Press Esc to stop.");
+        ImGui::TextWrapped("Inventory mode: open an empty Reforging Bench. Stash cycle: open TABLET+FRAGMENTS > Tablets; available inventory slots are used and unrelated items are left alone. Switch manually between stash and bench when prompted. Only identified tablets in selected categories and rarities are withdrawn. Press Esc to stop.");
         ImGui::TextWrapped("%s", controller_.Status().c_str());
         ImGui::PopID();
     }
