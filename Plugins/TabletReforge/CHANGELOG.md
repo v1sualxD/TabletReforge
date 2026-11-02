@@ -1,5 +1,14 @@
 # Changelog
 
+## TabletReforge 0.6.4
+
+- Fixed active Tablet stash page matching after category/page navigation using POEFixer grid geometry rather than a stale occupied-slot snapshot.
+- Renamed a matcher helper to avoid a Windows compiler keyword conflict.
+
+## TabletReforge 0.6.3
+
+- Attempted the active-grid stash matcher; its Windows build issue was corrected in 0.6.4.
+
 ## TabletReforge 0.6.3
 
 - Fixed stash-page matching to follow POEFixer's active tablet grid after switching categories or pages, instead of comparing against stale UI cells captured earlier.
