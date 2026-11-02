@@ -11,16 +11,6 @@ An English-only POEFixer plugin for reforging Path of Exile 2 tablets. Based on 
 
 Normal, unidentified, corrupted, and below-threshold tablets are excluded. Tablets matching selected keep mods remain in the stash. Only items withdrawn during this run and their results are returned. Transfer and pickup delays retain the selected speed setting and run about 1.3x faster than before.
 
-## Stash cycle
-
-1. Open your **TABLET+FRAGMENTS** stash tab on **Tablets**. The plugin uses available inventory space and leaves unrelated items alone.
-2. Select the categories and rarities to process, then click **Start stash cycle** and close the POEFixer menu.
-3. The plugin scans the eight tablet categories in the confirmed left-to-right order and all six pages within each category. It withdraws only identified, non-corrupted Magic or Rare tablets that match the selected categories, rarities, minimum uses, and keep filters.
-4. After the stash scan, the plugin closes the stash, locates the movable Reforging Bench by its live world entity and screen projection, opens it, and reforges compatible groups of three.
-5. It closes the bench, finds and opens your own stash, returns results and leftovers, and scans again until no compatible trio remains. Stash and bench panels are switched automatically; press **Esc** to cancel. The action and pickup waits remain about 1.3x faster than before.
-
-The bench is detected from its metadata path and current world position, so it does not need a fixed screen coordinate. The plugin only clicks a visible, targetable bench match; if it cannot identify one safely, it waits without clicking. Only tablets withdrawn during this run and their results are returned.
-
 ## Diagnostics
 
 Open the plugin's final **Diagnostics** section and capture a report after an error, with the relevant in-game panel open. It saves `config/tablet-reforge-diagnostics.txt` in the plugin folder. The report includes controller state, inventory, visible UI, and entity metadata paths and targetability to help locate the movable hideout bench.
