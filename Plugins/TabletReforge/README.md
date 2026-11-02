@@ -1,10 +1,10 @@
-# TabletReforge 0.6.9
+# TabletReforge 0.7.1
 
 An English-only POEFixer plugin for reforging Path of Exile 2 tablets. Based on TabletHelper by Omer Faruk ARPA and POEFixer; distributed under GPL-3.0.
 
 ## Automatic stash-to-bench cycle
 
-1. Select categories, rarities, minimum uses, and any keep-mod filters, then click the single **Start automatic cycle** button and close the POEFixer menu.
+1. Select categories, rarities, minimum uses, and any keep-mod filters, then click the single **Start automatic cycle** button. The plugin attempts to close its focused POEFixer window automatically.
 2. The plugin opens your own stash, selects the Tablet tab and the Tablets section, then scans the selected categories and all six pages in each.
 3. It withdraws eligible identified Magic or Rare tablets, closes the stash, detects and opens the movable Reforging Bench, and reforges groups of three from the same category and rarity.
 4. It closes the bench, reopens the stash, returns results and leftovers, then repeats until no compatible trio remains. Press **Esc** to cancel.
