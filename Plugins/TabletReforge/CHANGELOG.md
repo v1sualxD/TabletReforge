@@ -4,6 +4,7 @@
 
 - Fixed movable-bench detection to match POEFixer's live path `Metadata/MiscellaneousObjects/Hideout/ReforgingBench`, with a live UI-label fallback.
 - The single launch button now opens the own stash, selects the Tablet tab, runs the full reforge cycle, and returns results automatically.
+- Checks each stash tablet's tooltip before withdrawal and leaves Sanctified tablets in the stash; stops without clicking if the tooltip cannot be read.
 
 ## TabletReforge 0.6.8
 
