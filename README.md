@@ -1,66 +1,38 @@
-# TabletReforge 0.5.5
+# TabletReforge 0.5.8
 
-An English-only POEFixer plugin for reforging identified Path of Exile 2 tablets from the inventory.
-Based on TabletHelper by Omer Faruk ARPA and POEFixer, distributed under GPL-3.0.
+An English-only POEFixer plugin for reforging Path of Exile 2 tablets. Based on TabletHelper by Omer Faruk ARPA and POEFixer; distributed under GPL-3.0.
 
-## Use
+## Inventory reforging
 
-1. Open an **empty Reforging Bench** and keep the inventory open.
-2. In the plugin menu, enable **All tablets in inventory** and choose the **Normal**, **Magic** and/or **Rare** rarities to process.
-3. Set **Tablet transfer speed**, then click **Start reforging**.
-4. Close the POEFixer menu within 30 seconds. The game must remain foregrounded. Press **Esc** to stop.
+1. Empty the inventory and open an empty Reforging Bench.
+2. Select tablet categories and rarities, set the transfer speed, then click **Start reforging**.
+3. Close the POEFixer menu within 30 seconds. Press **Esc** to stop.
 
-The plugin uses Ctrl + left click to move each input tablet from the inventory to the bench. The speed setting
-(1–20) controls input click duration, the pause before each transfer and the confirmation polling cadence. It activates **Reforge**
-with a normal left click. To collect a result, it uses a normal left click on the output and waits 0.7 seconds
-after clicking the output before processing the pickup. It places the item into the first free inventory cell if
-the click picks it up instead of transferring it directly. After confirming the result, the cursor moves to
-the next tablet from the original planned batch list; the unidentified result is never added to that list.
-If an unexpected
-state is detected, the sequence stops and reports that the bench may need manual recovery.
+Only identified, non-corrupted tablets are used. A batch always contains three tablets of the same category and rarity. Results and leftovers are not reused in the same batch plan.
 
-## Tablet rules
+## Stash cycle (new in 0.5.8)
 
-Only identified, non-corrupted tablets of a selected rarity are considered. Tablets with the same visible category and rarity are grouped, three at a time. Normal, Magic and Rare are independently selectable and all are enabled by default. Abyss, Expedition, Ritual and other types are never mixed. Internal metadata path variants of the
-same category can be grouped together. Any one or two leftovers remain in the inventory. Reforged results
-are never added to the queue, so unidentified results are not reforged.
+1. Open your **TABLET+FRAGMENTS** stash tab on **Tablets**. The plugin uses available inventory space and leaves unrelated items alone.
+2. Select the categories and rarities to process, then click **Start stash cycle** and close the POEFixer menu.
+3. The plugin scans the eight tablet categories in the confirmed left-to-right order and all six pages within each category. It withdraws only identified, non-corrupted tablets that match the selected categories and rarities. It stops when the inventory is full or the selected pages are exhausted.
+4. When prompted, open the Reforging Bench, click **Continue with Reforging Bench**, then close the POEFixer menu.
+5. When prompted again, open **TABLET+FRAGMENTS > Tablets**, click **Continue at Tablet stash**, then close the menu. The plugin returns results and leftovers to a page with space, then scans again until no compatible identified trio remains.
 
-When no compatible trio is found, the plugin writes each tablet path, base type, category, rarity,
-identification state and eligibility to `Plugins/TabletReforge/config/tablet-scan.txt`.
+Stash and bench panels cannot stay open together, so the plugin pauses for the player to switch between them. Only tablets withdrawn during this run and their reforge results are returned. If page contents cannot be matched uniquely to the live UI, the plugin stops without clicking.
 
-**All tablets in inventory** is the only selection mode. Type and modifier filters and saved profiles have been removed. The optional type labels show the tablet category on inventory items. Inventory highlights use rarity colours: gray for Normal, blue for Magic, and yellow for Rare.
+## Controls and safety
 
-## Bench recognition and safety
-
-The bench must already be open. The plugin finds the visible Reforging Bench panel, the **Reforge**
-button and the output slot in the POEFixer UI tree. It validates the live game window and these UI
-elements before every click; it does not guess fixed screen coordinates. If it cannot establish a unique
-bench and output slot, it sends no input and writes the observed UI tree to
-`Plugins/TabletReforge/config/reforge-ui.txt`.
-
-The bench must be empty before starting. POEFixer's public SDK does not expose a reliable emptiness
-check, so confirm all four bench slots are empty yourself. The plugin stops on focus loss, area/window
-changes, an unexpected inventory change, or a timeout. Do not move items or open chat while it runs.
-
-## Build and install
+- Category order: Irradiated, Ritual, Expedition, Delirium, Breach, Abyss, Temple, Overseer. The ninth stash icon is ignored.
+- Rarity colors: Normal gray, Magic blue, Rare yellow.
+- **Esc** cancels an active step. If a validation fails, check the status message and recover any items manually before restarting.
+- The plugin uses live UI geometry and Ctrl + left click. It does not use fixed screen coordinates.
 
 Repository: https://github.com/v1sualxD/TabletReforge
 
-The settings panel includes **Capture Tablet stash diagnostics**. With the Tablet stash tab open, this writes the currently visible stash inventory and visible UI control tree to `Plugins/TabletReforge/config/tablet-stash-ui.txt` for safe category/page control discovery.
+POEFixer installs the latest release from the repository using **Plugins > Plugin Manager > Add from GitHub**. The release ZIP must contain `Plugins/TabletReforge/TabletReforge.dll`.
 
-In POEFixer, choose **Plugins > Plugin Manager > Add from GitHub**, enter the repository address, and
-install or update. The latest release contains `TabletReforge.zip` with
-`Plugins/TabletReforge/TabletReforge.dll`.
+## Build
 
-To build locally, install Visual Studio 2022 Desktop C++ with MSVC v143 and the Windows SDK. Open
-`TabletReforge.sln`, select **Release | x64**, and build. The DLL is written to
-`x64/Release/Plugins/TabletReforge/TabletReforge.dll`.
+Build `TabletReforge.sln` with Visual Studio 2022, MSVC v143 and the Windows SDK, using **Release | x64**. The GitHub Actions workflow compiles the DLL and packages the installable ZIP.
 
-Alternatively, run **Actions > Build TabletReforge > Run workflow** on GitHub. The workflow builds the
-DLL, runs the grouping and UI-discovery checks 20 times, and creates the installable ZIP.
-
-## Attribution
-
-Original source: https://github.com/POEFixer/TabletHelper, commit
-`ac8fa16e04a6237d1df95917051cfe2d8d709828`.
-Credits: Omer Faruk ARPA and POEFixer. See LICENSE and UPSTREAM-README.md.
+Original source: https://github.com/POEFixer/TabletHelper, commit `ac8fa16e04a6237d1df95917051cfe2d8d709828`.
