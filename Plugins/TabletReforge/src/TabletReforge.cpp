@@ -17,13 +17,13 @@ POEFIXER_PLUGIN_INFO(
 class TabletReforgePlugin : public PluginSDK::Plugin {
     TabletHelper::TabletReforgeController controller_;
     bool allTablets_ = true, showTabletTypes_ = true, running_ = false;
-    int pickupDelayLevel_ = 10;
+    int executionSpeed_ = 7;
 public:
     const char* GetName() const override { return "Tablet Reforge"; }
     bool WantsOverlay() const override { return true; }
     void OnEnable(bool) override {
         if (!HostCompatible()) return;
-        allTablets_ = true; showTabletTypes_ = true; pickupDelayLevel_ = 10;
+        allTablets_ = true; showTabletTypes_ = true; executionSpeed_ = 7;
         try {
             std::ifstream file(DirectoryPath() / "config" / "settings.json");
             if (file) {
@@ -32,8 +32,8 @@ public:
                     allTablets_ = settings["all_tablets"].get<bool>();
                 if (settings.is_object() && settings.contains("show_tablet_types") && settings["show_tablet_types"].is_boolean())
                     showTabletTypes_ = settings["show_tablet_types"].get<bool>();
-                if (settings.is_object() && settings.contains("pickup_delay_level") && settings["pickup_delay_level"].is_number_integer())
-                    pickupDelayLevel_ = std::clamp(settings["pickup_delay_level"].get<int>(), 1, 10);
+                if (settings.is_object() && settings.contains("execution_speed") && settings["execution_speed"].is_number_integer())
+                    executionSpeed_ = std::clamp(settings["execution_speed"].get<int>(), 1, 10);
             }
         } catch (...) { ctx()->Log.Warn("TabletReforge: could not read settings; defaults are active."); }
         controller_.Reset(); running_ = true;
@@ -47,7 +47,7 @@ public:
             const auto destination = directory / "settings.json";
             std::ofstream file(temporary, std::ios::binary | std::ios::trunc);
             file << nlohmann::json{{"all_tablets", allTablets_}, {"show_tablet_types", showTabletTypes_},
-                {"pickup_delay_level", pickupDelayLevel_}}.dump(2);
+                {"execution_speed", executionSpeed_}}.dump(2);
             file.flush();
             if (!file.good()) throw std::runtime_error("Settings write failed");
             file.close();
@@ -63,12 +63,12 @@ public:
             "Unidentified tablets are never used.");
         ImGui::BeginDisabled(controller_.Busy());
         if (ImGui::Checkbox("All tablets in inventory", &allTablets_)) SaveSettings();
-        if (ImGui::SliderInt("Result pickup delay", &pickupDelayLevel_, 1, 10)) SaveSettings();
-        ImGui::TextDisabled("Only after a reforge result: 1 = 200 ms, 10 = 2,000 ms");
+        if (ImGui::SliderInt("Tablet transfer speed", &executionSpeed_, 1, 10)) SaveSettings();
+        ImGui::TextDisabled("Controls moving tablets into the bench. Result pickup waits 2 seconds.");
         if (ImGui::Checkbox("Highlight tablet types", &showTabletTypes_)) SaveSettings();
         ImGui::Text("Eligible tablets: %llu", static_cast<unsigned long long>(controller_.SelectedCount()));
         ImGui::BeginDisabled(!allTablets_);
-        if (ImGui::Button("Start reforging")) controller_.RequestStart(ctx(), allTablets_, pickupDelayLevel_ * 200);
+        if (ImGui::Button("Start reforging")) controller_.RequestStart(ctx(), allTablets_, 2100 - executionSpeed_ * 200);
         ImGui::EndDisabled();
         ImGui::EndDisabled();
         ImGui::TextWrapped("Open an empty Reforging Bench first. After starting, close this menu. "

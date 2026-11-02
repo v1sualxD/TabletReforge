@@ -31,7 +31,8 @@ class TabletReforgeController {
     Clock::time_point requestExpires_{}, actionAt_{}, deadline_{}, nextScan_{};
     std::string status_ = "Open an empty Reforging Bench, then press Start reforging.";
     static constexpr int kActionDelayMs = 700;
-    int resultPickupDelayMs_ = 2000;
+    int inputTransferDelayMs_ = 700;
+    static constexpr int kResultPickupPauseMs = 2000;
     enum class InputPhase { Idle, MoveAndModifier, ButtonDown, ButtonUp, ModifierUp };
     InputPhase inputPhase_ = InputPhase::Idle;
     bool ownedCtrl_ = false, ownedButton_ = false;
@@ -290,10 +291,10 @@ public:
     const std::string& Status() const { return status_; }
     void Stop(const char* reason) { ReleaseInput(); phase_ = Phase::Idle; pending_ = false; targets_.reset(); status_ = reason; }
     void Reset() { Stop("Open an empty Reforging Bench, then press Start reforging."); outlines_.clear(); labels_.clear(); displayedCount_ = 0; }
-    void RequestStart(const PluginSDK::Context* c, bool all, int resultPickupDelayMs) {
+    void RequestStart(const PluginSDK::Context* c, bool all, int inputTransferDelayMs) {
         if (Busy()) return;
         if (!all) { status_ = "Enable All tablets in inventory before starting."; return; }
-        all_ = all; resultPickupDelayMs_ = std::clamp(resultPickupDelayMs, 200, 2000); pending_ = true;
+        all_ = all; inputTransferDelayMs_ = std::clamp(inputTransferDelayMs, 100, 1900); pending_ = true;
         area_ = c->Game.GetAreaChangeCounter(); window_ = c->Game.GetGameWindow();
         requestExpires_ = Clock::now() + std::chrono::seconds(30);
         status_ = "Close the POEFixer menu to start. Keep the empty Reforging Bench open. Esc cancels.";
@@ -324,8 +325,8 @@ public:
         if (!Running()) return;
         if (!Ready(c)) { Stop("Stopped: bench closed, moved, resized, or another automation started."); return; }
         if (now > deadline_) { Stop("Stopped: no confirmation within 6 seconds. Check the bench before restarting."); return; }
-        const int phaseDelayMs = phase_ == Phase::PlaceResult
-            ? resultPickupDelayMs_ : kActionDelayMs;
+        const int phaseDelayMs = phase_ == Phase::PlaceResult ? kResultPickupPauseMs
+            : (phase_ == Phase::Transfer ? inputTransferDelayMs_ : kActionDelayMs);
         if (now - actionAt_ < std::chrono::milliseconds(phaseDelayMs)) return;
         const auto snapshot = c->Inventory.ReadSnapshot(1);
         if (!snapshot.Ready || snapshot.ScanStamp == stamp_) return;
