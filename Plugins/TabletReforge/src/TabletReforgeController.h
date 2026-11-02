@@ -945,7 +945,7 @@ class TabletReforgeController {
             std::filesystem::create_directories(config);
             std::ofstream out(config / "tablet-reforge-diagnostics.txt", std::ios::trunc);
             if (!out) { status_ = "Could not write config/tablet-reforge-diagnostics.txt."; return; }
-            out << "TabletReforge 0.6.8 diagnostics\n"
+            out << "TabletReforge 0.6.9 diagnostics\n"
                 << "Captured status: " << status_ << "\n"
                 << "Controller phase=" << static_cast<int>(phase_)
                 << " stash_stage=" << static_cast<int>(stashStage_)
@@ -984,6 +984,7 @@ class TabletReforgeController {
                         << item.ScreenX << ',' << item.ScreenY << ' ' << item.ScreenW << 'x' << item.ScreenH
                         << " identified=" << identity.identified << " rarity=" << identity.rarity
                         << " mods_valid=" << mods.Valid
+                        << " sanctified_text_marker=" << identity.sanctified
                         << " raw_identified=" << item.IsIdentified << " raw_rarity=" << item.Rarity
                         << " category=" << ClassifyFromText(item.Path, item.BaseTypeName)
                         << " path=" << item.Path << " base=" << item.BaseTypeName << '\n';
