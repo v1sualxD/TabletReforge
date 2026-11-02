@@ -8,7 +8,6 @@
 #include <tuple>
 #include <vector>
 
-
 namespace TabletHelper {
 struct ReforgeItem {
     uintptr_t address = 0;
@@ -24,9 +23,9 @@ inline std::string TabletCategory(const ReforgeItem& item) {
     return ClassifyFromText(item.path, item.baseType);
 }
 
-
 // Freeze the initial inventory: results are collected but never put back in the queue.
-// Group by the visible tablet category and rarity; metadata paths can vary within a category.
+// The reforge groups tablets by their visible category and rarity. Internal metadata paths
+// can differ between variants of the same category, so they are not valid grouping keys.
 inline std::vector<ReforgeBatch> PlanReforge(std::vector<ReforgeItem> items) {
     std::sort(items.begin(), items.end(), [](const auto& a, const auto& b) {
         return std::tie(a.y, a.x, a.address) < std::tie(b.y, b.x, b.address);
@@ -43,3 +42,10 @@ inline std::vector<ReforgeBatch> PlanReforge(std::vector<ReforgeItem> items) {
     }
     std::vector<ReforgeBatch> batches;
     for (const auto& [key, group] : groups) {
+        (void)key;
+        for (size_t i = 0; i + 2 < group.size(); i += 3)
+            batches.push_back({group[i], group[i + 1], group[i + 2]});
+    }
+    return batches;
+}
+} // namespace TabletHelper
