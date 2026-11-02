@@ -3,6 +3,8 @@
 #include "TabletStashDiscovery.h"
 #include "../../../POEFixer/imgui/imgui.h"
 #include "../lib/nlohmann/json.hpp"
+#include "lang_en.generated.h"
+#include <array>
 #include <fstream>
 #include <stdexcept>
 
@@ -36,7 +38,7 @@ uint8_t MakeRarityMask(bool normal, bool magic, bool rare) {
 POEFIXER_PLUGIN_INFO(
     "TabletReforge",
     "Tablet Reforge",
-    "0.6.1",
+    "0.6.2",
     "TabletReforge contributors; Omer Faruk ARPA; POEFixer",
     "Reforge identified tablets by rarity in matching category trios, collect results without reusing unidentified tablets, and display tablet types.")
 
@@ -50,6 +52,7 @@ class TabletReforgePlugin : public PluginSDK::Plugin {
     bool rare_ = true;
     int executionSpeed_ = 15;
     std::vector<TypeConfig> types_ = AllTabletTypes();
+    std::array<char, 160> bonusSearch_{};
 
     uint8_t RarityMask() const { return MakeRarityMask(normal_, magic_, rare_); }
 
@@ -91,6 +94,8 @@ public:
                         for (auto& type : types_)
                             type.enabled = ReadBool(settings["categories"], type.key.c_str(), type.enabled);
                     }
+                    if (settings.contains("type_filters"))
+                        TabletHelperConfig::ApplyTypeOverrides(types_, settings["type_filters"]);
                 }
             }
         } catch (...) { ctx()->Log.Warn("TabletReforge: could not read settings; defaults are active."); }
@@ -119,6 +124,7 @@ public:
             for (const auto& type : types_)
                 if (type.key != TabletHelper::TypeKeys::Global)
                     settings["categories"][type.key] = type.enabled;
+            settings["type_filters"] = TabletHelperConfig::SerializeTypes(types_);
             file << settings.dump(2);
             file.flush();
             if (!file.good()) throw std::runtime_error("Settings write failed");
@@ -152,6 +158,58 @@ public:
         if (ImGui::SliderInt("Tablet transfer speed", &executionSpeed_, 1, 20)) SaveSettings();
         ImGui::TextDisabled("Highlights: Normal gray, Magic blue, Rare yellow. Result pickup waits 0.7 seconds.");
         if (ImGui::Checkbox("Highlight tablet types", &showTabletTypes_)) SaveSettings();
+        ImGui::EndDisabled();
+
+        ImGui::Separator();
+        ImGui::BeginDisabled(controller_.StashCycleActive());
+        ImGui::TextWrapped("Stash filters: tablets matching selected mods stay in the stash. The uses threshold is the minimum required to withdraw a tablet for reforging.");
+        ImGui::InputText("Search tablet mods", bonusSearch_.data(), bonusSearch_.size());
+        const std::string search = TabletHelper::ToLowerCopy(bonusSearch_.data());
+        for (auto& type : types_) {
+            if (type.key == TabletHelper::TypeKeys::Global) continue;
+            const std::string header = type.key + " Tablet keep filters (" + std::to_string(type.selectedBonusIds.size()) + " mods)";
+            if (!ImGui::CollapsingHeader(header.c_str())) continue;
+            ImGui::PushID(type.key.c_str());
+            int minUses = type.minUsesLeft;
+            if (ImGui::SliderInt("Minimum uses left to withdraw", &minUses, 0, TabletHelperConfig::kMinUsesMax)) {
+                type.minUsesLeft = minUses;
+                SaveSettings();
+            }
+            ImGui::TextDisabled("0 = any uses, 1 = 1+ use, 2 = 2+ uses, etc. Lower-use tablets stay in the stash.");
+            if (type.selectedBonusIds.empty()) {
+                ImGui::TextDisabled("No mods selected: all otherwise eligible tablets of this type can be withdrawn.");
+            } else {
+                const int maxMatched = (std::min)(TabletHelperConfig::kMinMatchedMax,
+                    static_cast<int>(type.selectedBonusIds.size()));
+                int minMatched = std::clamp(type.minMatchedBonuses, 1, maxMatched);
+                if (ImGui::SliderInt("Minimum selected mods to keep", &minMatched, 1, maxMatched)) {
+                    type.minMatchedBonuses = minMatched;
+                    SaveSettings();
+                }
+                ImGui::TextDisabled("A tablet with at least %d selected mod(s) stays in the stash.",
+                    (std::min)(type.minMatchedBonuses, static_cast<int>(type.selectedBonusIds.size())));
+            }
+            const auto& bonuses = TabletHelper::GetBonusesFor(type.key);
+            for (const auto& bonus : bonuses) {
+                const char* translated = PluginSDK::I18n::Tr(bonus.LabelKey.c_str());
+                const std::string label = translated ? translated : bonus.Id;
+                if (!search.empty() && !TabletHelper::ContainsCI(label, search) &&
+                    !TabletHelper::ContainsCI(bonus.Id, search)) continue;
+                bool selected = std::find(type.selectedBonusIds.begin(), type.selectedBonusIds.end(), bonus.Id) != type.selectedBonusIds.end();
+                ImGui::PushID(bonus.Id.c_str());
+                if (ImGui::Checkbox(label.c_str(), &selected)) {
+                    if (selected) type.selectedBonusIds.push_back(bonus.Id);
+                    else {
+                        type.selectedBonusIds.erase(std::remove(type.selectedBonusIds.begin(), type.selectedBonusIds.end(), bonus.Id), type.selectedBonusIds.end());
+                        type.requiredBonusIds.erase(std::remove(type.requiredBonusIds.begin(), type.requiredBonusIds.end(), bonus.Id), type.requiredBonusIds.end());
+                        type.valueFilters.erase(bonus.Id);
+                    }
+                    SaveSettings();
+                }
+                ImGui::PopID();
+            }
+            ImGui::PopID();
+        }
         ImGui::EndDisabled();
         ImGui::Text("Tablets to reforge: %llu", static_cast<unsigned long long>(controller_.SelectedCount()));
         ImGui::BeginDisabled(controller_.StashCycleActive());
