@@ -111,13 +111,15 @@ class TabletReforgeController {
         if (rule == typeRules.end() || !rule->enabled) return false;
         const auto parsed = parsedCache_.find(item.address);
         if (parsed == parsedCache_.end() || !parsed->second.modsRead) return false;
-        // With the mod filters removed, there is no keep rule: every eligible
-        // tablet of a selected rarity should be considered for a reforge trio.
-        if (!TabletHelper::HasFilters(*rule)) return true;
-        // If the SDK did not expose any mod identities, do not treat an unreadable
-        // tablet as a failed keep filter and risk reforging it by accident.
-        if (TabletHelper::HasFilters(*rule) && parsed->second.matchKeys.empty()) return false;
-        return !TabletHelper::ConfigAccepts(*rule, parsed->second, true, category, nullptr);
+                // Uses is an inclusion threshold: only tablets with enough uses are
+        // reforged. Selected mods are the inverse keep filter: matching tablets
+        // are protected from reforging.
+        if (rule->minUsesLeft > 0 && parsed->second.usesLeft < rule->minUsesLeft) return false;
+        if (rule->selectedBonusIds.empty()) return true;
+        if (parsed->second.matchKeys.empty()) return false; // fail closed if mod identity is unavailable
+        auto bonusRule = *rule;
+        bonusRule.minUsesLeft = 0;
+        return !TabletHelper::ConfigAccepts(bonusRule, parsed->second, true, category, nullptr);
     }
     static void WriteScanDiagnostic(const PluginSDK::Context* c, const PluginSDK::Inventory& inv,
         const std::map<uintptr_t, ReforgeItem>& bag, const std::filesystem::path& directory) {
@@ -496,9 +498,27 @@ class TabletReforgeController {
             if (match.state == TabletStashPageMatchState::Empty) { AdvanceStashPage(c); return; }
             std::vector<const PluginSDK::InventoryItem*> candidates;
             for (const auto& item : match.inventory.Items) {
-                const auto identity = Identity(c, item);
-                if (TabletCategory(identity) == stashCategories_[stashCategory_] &&
-                    EligibleTablet(identity, stashRarityMask_)) candidates.push_back(&item);
+                                ParsedTablet parsed;
+                const auto identity = Identity(c, item, &parsed);
+                if (TabletCategory(identity) != stashCategories_[stashCategory_] ||
+                    !EligibleTablet(identity, stashRarityMask_)) continue;
+
+                const auto rule = std::find_if(stashTypeRules_.begin(), stashTypeRules_.end(), [&](const auto& type) {
+                    return type.key == stashCategories_[stashCategory_] && type.enabled;
+                });
+                if (rule == stashTypeRules_.end()) continue;
+
+                // Minimum uses is an inclusion threshold. Selected mods are keep
+                // rules. If the host cannot read a configured rule, leave the
+                // tablet untouched rather than risk moving the wrong one.
+                if (rule->minUsesLeft > 0 && (!parsed.modsRead || parsed.usesLeft < rule->minUsesLeft)) continue;
+                if (!rule->selectedBonusIds.empty()) {
+                    if (!parsed.modsRead || parsed.matchKeys.empty()) continue;
+                    auto bonusRule = *rule;
+                    bonusRule.minUsesLeft = 0;
+                    if (ConfigAccepts(bonusRule, parsed, true, stashCategories_[stashCategory_], nullptr)) continue;
+                }
+                candidates.push_back(&item);
             }
             std::sort(candidates.begin(), candidates.end(), [](const auto* a, const auto* b) {
                 return a->SlotY == b->SlotY ? a->SlotX < b->SlotX : a->SlotY < b->SlotY;
