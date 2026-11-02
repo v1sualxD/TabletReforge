@@ -3,6 +3,7 @@
 ## TabletReforge 0.6.6
 
 - Added a final Diagnostics section that captures controller state, stash/inventory data, visible UI controls, and world entity paths to `config/tablet-reforge-diagnostics.txt`.
+- Removed the 30-second request timeout; pending steps wait until the expected game panel is available or the player presses Esc.
 
 
 ## TabletReforge 0.6.5
