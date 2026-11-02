@@ -799,13 +799,21 @@ public:
             stashStage_ != StashStage::AwaitStash && stashStage_ != StashStage::Finished) {
             TickStash(c, directory); return;
         }
+        // The POEFixer settings window can take foreground focus while the game stays
+        // attached. Do not read item mods or scan inventories from its UI/render loop.
+        // Keep a pending start request alive so it can begin after the player returns
+        // focus to the game.
+        if (!Foreground(c)) {
+            outlines_.clear(); labels_.clear(); displayedCount_ = 0;
+            if (Running()) Stop("Stopped: game lost focus or the POEFixer menu was opened.");
+            return;
+        }
         if (PumpInput(c)) return;
         if (!Busy()) Preview(c, all, rarityMask, typeRules); else { outlines_.clear(); labels_.clear(); }
         if (now >= nextScan_) {
             c->Inventory.Scan(1);
             nextScan_ = now + std::chrono::milliseconds(Running() ? 25 : 100);
         }
-        if (!Foreground(c)) { if (Running()) Stop("Stopped: game lost focus or the POEFixer menu was opened."); return; }
         if (pending_) {
             pending_ = false;
             if (c->Game.IsHostAutomationActive()) { Stop("Another POEFixer automation is active."); return; }
