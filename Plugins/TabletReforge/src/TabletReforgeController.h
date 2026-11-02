@@ -1,6 +1,6 @@
 #pragma once
 #include "ItemRects.h"
-#include "TabletSelection.h"
+#include "TabletEligibility.h"
 #include "ReforgeUiDiscovery.h"
 #include <Windows.h>
 #include <chrono>
@@ -9,12 +9,13 @@
 #include <optional>
 
 namespace TabletHelper {
+struct TabletLabel { ScreenRect rect; std::string type; };
 class TabletReforgeController {
     using Clock = std::chrono::steady_clock;
     enum class Phase { Idle, InitialScan, Transfer, WaitTransfer, Forge, WaitForge, WaitResult };
     Phase phase_ = Phase::Idle;
-    TabletSelection selection_, requestedSelection_;
     std::vector<ScreenRect> outlines_;
+    std::vector<TabletLabel> labels_;
     size_t displayedCount_ = 0;
     bool pending_ = false, all_ = false;
     uint64_t selectionArea_ = ~0ull, area_ = 0, stamp_ = 0;
@@ -25,8 +26,13 @@ class TabletReforgeController {
     std::vector<ReforgeBatch> batches_;
     size_t batch_ = 0, item_ = 0;
     Clock::time_point requestExpires_{}, actionAt_{}, deadline_{}, nextScan_{};
-    std::string status_ = "Hover a tablet and hold Ctrl + Alt to toggle selection.";
-    static constexpr int kActionDelayMs = 750;
+    std::string status_ = "Open an empty Reforging Bench, then press Start reforging.";
+    int actionDelayMs_ = 700;
+    enum class InputPhase { Idle, MoveAndModifier, ButtonDown, ButtonUp, ModifierUp };
+    InputPhase inputPhase_ = InputPhase::Idle;
+    bool ownedCtrl_ = false, ownedButton_ = false;
+    Clock::time_point inputDue_{};
+    static constexpr int kInputPulseMs = 40;
 
     static ReforgeItem Identity(const PluginSDK::InventoryItem& i) {
         return {i.Address, i.Path, i.Rarity, i.ItemLevel, i.SlotX, i.SlotY, i.IsIdentified, i.IsCorrupted};
@@ -75,10 +81,14 @@ class TabletReforgeController {
         try {
             std::filesystem::create_directories(directory / "config");
             std::ofstream out(directory / "config" / "reforge-ui.txt", std::ios::trunc);
-            out << "TabletReforge 0.2.0 UI discovery: " << nodes.size() << " nodes; budget=" << budget << '\n';
-            for (const auto& n : nodes)
-                if (!n.name.empty() || !n.text.empty()) out << n.parent << ' ' << n.address << " [" << n.name << "] [" << n.text
+            out << "TabletReforge 0.3.0 UI discovery: " << nodes.size() << " nodes; budget=" << budget << '\n';
+            for (size_t index = 0; index < nodes.size(); ++index) {
+                const auto& n = nodes[index];
+                const auto textId = NormalizeIdentifier(n.text);
+                const auto text = (textId == "reforge" || textId == "reforgingbench") ? n.text : std::string();
+                out << index << " parent=" << n.parent << ' ' << n.address << " [" << n.name << "] [" << text
                     << "] " << n.x << ',' << n.y << ' ' << n.w << 'x' << n.h << '\n';
+            }
         } catch (...) {}
         return false;
     }
@@ -86,6 +96,7 @@ class TabletReforgeController {
         const auto element = c->Ui.Read(expected.address);
         if (!element.Valid || !c->Ui.IsVisible(expected.address)) return false;
         if (!expected.name.empty() && c->Ui.GetControlName(expected.address) != expected.name) return false;
+        if (!expected.text.empty() && c->Ui.GetStringId(expected.address) != expected.text) return false;
         float x = 0, y = 0, w = 0, h = 0;
         if (!c->Ui.ComputeScreenRect(expected.address, x, y, w, h) ||
             !std::isfinite(x) || !std::isfinite(y) || !std::isfinite(w) || !std::isfinite(h) ||
@@ -118,25 +129,53 @@ class TabletReforgeController {
         const int sx = ::GetSystemMetrics(SM_XVIRTUALSCREEN), sy = ::GetSystemMetrics(SM_YVIRTUALSCREEN);
         const int sw = ::GetSystemMetrics(SM_CXVIRTUALSCREEN), sh = ::GetSystemMetrics(SM_CYVIRTUALSCREEN);
         if (sw < 2 || sh < 2 || screen.x < sx || screen.y < sy || screen.x >= sx + sw || screen.y >= sy + sh) return false;
-        INPUT input[5]{};
+        INPUT input[2]{};
         UINT count = 0;
         input[count].type = INPUT_MOUSE;
         input[count].mi.dx = static_cast<LONG>((static_cast<double>(screen.x - sx) * 65535.0) / (sw - 1));
         input[count].mi.dy = static_cast<LONG>((static_cast<double>(screen.y - sy) * 65535.0) / (sh - 1));
         input[count++].mi.dwFlags = MOUSEEVENTF_MOVE | MOUSEEVENTF_ABSOLUTE | MOUSEEVENTF_VIRTUALDESK;
         if (ctrl) { input[count].type = INPUT_KEYBOARD; input[count++].ki.wVk = VK_LCONTROL; }
-        input[count].type = INPUT_MOUSE; input[count++].mi.dwFlags = MOUSEEVENTF_LEFTDOWN;
-        input[count].type = INPUT_MOUSE; input[count++].mi.dwFlags = MOUSEEVENTF_LEFTUP;
-        if (ctrl) {
-            input[count].type = INPUT_KEYBOARD; input[count].ki.wVk = VK_LCONTROL;
-            input[count++].ki.dwFlags = KEYEVENTF_KEYUP;
+        ownedCtrl_ = ctrl;
+        if (::SendInput(count, input, sizeof(INPUT)) != count) { ReleaseInput(); return false; }
+        inputPhase_ = InputPhase::MoveAndModifier;
+        inputDue_ = Clock::now() + std::chrono::milliseconds(kInputPulseMs);
+        return true;
+    }
+    void ReleaseInput() {
+        INPUT release[2]{}; UINT count = 0;
+        if (ownedButton_) { release[count].type = INPUT_MOUSE; release[count++].mi.dwFlags = MOUSEEVENTF_LEFTUP; }
+        if (ownedCtrl_) {
+            release[count].type = INPUT_KEYBOARD; release[count].ki.wVk = VK_LCONTROL;
+            release[count++].ki.dwFlags = KEYEVENTF_KEYUP;
         }
-        if (::SendInput(count, input, sizeof(INPUT)) == count) return true;
-        INPUT release[2]{};
-        release[0].type = INPUT_MOUSE; release[0].mi.dwFlags = MOUSEEVENTF_LEFTUP;
-        release[1].type = INPUT_KEYBOARD; release[1].ki.wVk = VK_LCONTROL; release[1].ki.dwFlags = KEYEVENTF_KEYUP;
-        ::SendInput(ctrl ? 2u : 1u, release, sizeof(INPUT));
-        return false;
+        if (count) ::SendInput(count, release, sizeof(INPUT));
+        ownedCtrl_ = ownedButton_ = false; inputPhase_ = InputPhase::Idle;
+    }
+    bool PumpInput(const PluginSDK::Context* c) {
+        if (inputPhase_ == InputPhase::Idle) return false;
+        if (!Ready(c)) { Stop("Stopped: game focus or bench changed during a click."); return true; }
+        const auto now = Clock::now();
+        if (now < inputDue_) return true;
+        INPUT event{};
+        if (inputPhase_ == InputPhase::MoveAndModifier) {
+            event.type = INPUT_MOUSE; event.mi.dwFlags = MOUSEEVENTF_LEFTDOWN; ownedButton_ = true;
+            inputPhase_ = InputPhase::ButtonDown;
+        } else if (inputPhase_ == InputPhase::ButtonDown) {
+            event.type = INPUT_MOUSE; event.mi.dwFlags = MOUSEEVENTF_LEFTUP;
+            inputPhase_ = InputPhase::ButtonUp;
+        } else if (inputPhase_ == InputPhase::ButtonUp && ownedCtrl_) {
+            event.type = INPUT_KEYBOARD; event.ki.wVk = VK_LCONTROL; event.ki.dwFlags = KEYEVENTF_KEYUP;
+            inputPhase_ = InputPhase::ModifierUp;
+        } else {
+            ReleaseInput(); actionAt_ = now; deadline_ = now + std::chrono::seconds(6);
+            c->Inventory.Scan(1); return true;
+        }
+        if (::SendInput(1, &event, sizeof(INPUT)) != 1) { Stop("Stopped: a mouse or keyboard event was blocked."); return true; }
+        if (event.type == INPUT_MOUSE && event.mi.dwFlags == MOUSEEVENTF_LEFTUP) ownedButton_ = false;
+        if (event.type == INPUT_KEYBOARD) ownedCtrl_ = false;
+        inputDue_ = now + std::chrono::milliseconds(kInputPulseMs);
+        return true;
     }
     void Wait(const PluginSDK::Context* c, Phase next, uint64_t stamp) {
         phase_ = next; stamp_ = stamp; actionAt_ = Clock::now();
@@ -146,45 +185,43 @@ class TabletReforgeController {
     void Preview(const PluginSDK::Context* c, bool all) {
         const uint64_t area = c->Game.GetAreaChangeCounter();
         if (area != selectionArea_ || selectionWindow_ != c->Game.GetGameWindow()) {
-            selection_.Clear(); selectionArea_ = area; selectionWindow_ = c->Game.GetGameWindow();
+            selectionArea_ = area; selectionWindow_ = c->Game.GetGameWindow();
         }
-        outlines_.clear(); displayedCount_ = 0;
-        const bool chord = (::GetAsyncKeyState(VK_CONTROL) & 0x8000) && (::GetAsyncKeyState(VK_MENU) & 0x8000);
-        if (!chord) selection_.ReleaseChord();
+        outlines_.clear(); labels_.clear(); displayedCount_ = 0;
         const auto snapshot = c->Inventory.ReadSnapshot(1);
         if (!snapshot.Ready || snapshot.AreaChangeCounter != area) return;
         const auto bag = Bag(snapshot.Value);
-        selection_.Refresh(bag);
-        displayedCount_ = selection_.Candidates(bag, all).size();
+        for (const auto& [address, identity] : bag) { (void)address; if (EligibleTablet(identity)) ++displayedCount_; }
         if (!Foreground(c)) return;
         RECT client{};
         if (!::GetClientRect(c->Game.GetGameWindow(), &client)) return;
         const auto& inv = snapshot.Value;
         if (!GridDrawn(inv, static_cast<float>(client.right), static_cast<float>(client.bottom))) return;
-        POINT mouse{};
-        const bool cursor = ::GetCursorPos(&mouse) && ::ScreenToClient(c->Game.GetGameWindow(), &mouse);
         for (const auto& item : inv.Items) {
             const auto identity = Identity(item);
-            if (!EligibleTablet(identity)) continue;
+            if (!ContainsCI(item.Path, "toweraugment")) continue;
             const auto rect = ResolveItemRect(inv, item, HasItemRects(inv), true,
                 static_cast<float>(client.right), static_cast<float>(client.bottom));
             if (!rect) continue;
-            if (!all && chord && cursor && Contains(*rect, mouse)) selection_.Touch(identity);
-            if (all || selection_.Contains(identity)) outlines_.push_back(*rect);
+            const std::string type = ClassifyFromText(item.Path, item.BaseTypeName);
+            labels_.push_back({*rect, type});
+            if (all && EligibleTablet(identity)) outlines_.push_back(*rect);
         }
-        displayedCount_ = selection_.Candidates(bag, all).size();
     }
 public:
+    ~TabletReforgeController() { ReleaseInput(); }
     bool Running() const { return phase_ != Phase::Idle; }
     bool Busy() const { return pending_ || Running(); }
     size_t SelectedCount() const { return displayedCount_; }
     const std::vector<ScreenRect>& Outlines() const { return outlines_; }
+    const std::vector<TabletLabel>& Labels() const { return labels_; }
     const std::string& Status() const { return status_; }
-    void Stop(const char* reason) { phase_ = Phase::Idle; pending_ = false; targets_.reset(); status_ = reason; }
-    void Reset() { Stop("Hover a tablet and hold Ctrl + Alt to toggle selection."); selection_.Clear(); outlines_.clear(); displayedCount_ = 0; }
-    void RequestStart(const PluginSDK::Context* c, bool all) {
+    void Stop(const char* reason) { ReleaseInput(); phase_ = Phase::Idle; pending_ = false; targets_.reset(); status_ = reason; }
+    void Reset() { Stop("Open an empty Reforging Bench, then press Start reforging."); outlines_.clear(); labels_.clear(); displayedCount_ = 0; }
+    void RequestStart(const PluginSDK::Context* c, bool all, int speed) {
         if (Busy()) return;
-        all_ = all; requestedSelection_ = selection_; pending_ = true;
+        if (!all) { status_ = "Enable All tablets in inventory before starting."; return; }
+        all_ = all; actionDelayMs_ = 2100 - std::clamp(speed, 1, 10) * 200; pending_ = true;
         area_ = c->Game.GetAreaChangeCounter(); window_ = c->Game.GetGameWindow();
         requestExpires_ = Clock::now() + std::chrono::seconds(30);
         status_ = "Close the POEFixer menu to start. Keep the empty Reforging Bench open. Esc cancels.";
@@ -193,11 +230,12 @@ public:
         const auto now = Clock::now();
         if (Busy() && (::GetAsyncKeyState(VK_ESCAPE) & 0x8000)) { Stop("Stopped. Recover any tablets left in the bench before restarting."); return; }
         if (Busy() && (!c->Game.IsInGame() || c->Game.GetAreaChangeCounter() != area_ || c->Game.GetGameWindow() != window_)) {
-            selection_.Clear(); Stop("Stopped: game window or area changed."); return;
+            Stop("Stopped: game window or area changed."); return;
         }
         if (pending_ && now > requestExpires_) { Stop("Start cancelled: the menu was not closed within 30 seconds."); return; }
-        if (!c->Game.IsInGame()) { outlines_.clear(); displayedCount_ = 0; return; }
-        if (!Busy()) Preview(c, all); else outlines_.clear();
+        if (!c->Game.IsInGame()) { outlines_.clear(); labels_.clear(); displayedCount_ = 0; return; }
+        if (PumpInput(c)) return;
+        if (!Busy()) Preview(c, all); else { outlines_.clear(); labels_.clear(); }
         if (now >= nextScan_) { c->Inventory.Scan(1); nextScan_ = now + std::chrono::milliseconds(100); }
         if (!Foreground(c)) { if (Running()) Stop("Stopped: game lost focus or the POEFixer menu was opened."); return; }
         if (pending_) {
@@ -209,12 +247,12 @@ public:
             const auto snapshot = c->Inventory.ReadSnapshot(1);
             if (!snapshot.Supported) { Stop("This POEFixer version does not provide inventory snapshots."); return; }
             Wait(c, Phase::InitialScan, snapshot.ScanStamp);
-            status_ = "Reading selected tablets..."; return;
+            status_ = "Reading inventory tablets..."; return;
         }
         if (!Running()) return;
         if (!Ready(c)) { Stop("Stopped: bench closed, moved, resized, or another automation started."); return; }
         if (now > deadline_) { Stop("Stopped: no confirmation within 6 seconds. Check the bench before restarting."); return; }
-        if (now - actionAt_ < std::chrono::milliseconds(kActionDelayMs)) return;
+        if (now - actionAt_ < std::chrono::milliseconds(actionDelayMs_)) return;
         const auto snapshot = c->Inventory.ReadSnapshot(1);
         if (!snapshot.Ready || snapshot.ScanStamp == stamp_) return;
         if (snapshot.AreaChangeCounter != area_) { Stop("Stopped: stale inventory from another area."); return; }
@@ -224,10 +262,11 @@ public:
         }
         const auto bag = Bag(inv);
         if (phase_ == Phase::InitialScan) {
-            requestedSelection_.Refresh(bag);
-            batches_ = PlanReforge(requestedSelection_.Candidates(bag, all_));
+            std::vector<ReforgeItem> candidates;
+            for (const auto& [address, identity] : bag) { (void)address; if (EligibleTablet(identity)) candidates.push_back(identity); }
+            batches_ = PlanReforge(std::move(candidates));
             expected_ = bag; batch_ = item_ = 0;
-            if (batches_.empty()) { Stop("No compatible trio. Select three identified tablets of the same base and rarity."); return; }
+            if (batches_.empty()) { Stop("No compatible trio: each batch needs three identified tablets of the same base and rarity."); return; }
             phase_ = Phase::Transfer;
         }
         if (phase_ == Phase::Transfer) {
@@ -276,7 +315,7 @@ public:
                 additions.begin()->second.rarity != batches_[batch_][0].rarity) {
                 Stop("Stopped: unexpected result. Check the bench before restarting."); return;
             }
-            expected_ = bag; selection_.Refresh(bag);
+            expected_ = bag;
             if (++batch_ == batches_.size()) {
                 const auto count = batches_.size(); Stop("Finished.");
                 status_ = "Finished: " + std::to_string(count) + " batch(es). Results returned to inventory."; return;
