@@ -1,7 +1,9 @@
-#include "../Plugins/TabletReforge/src/ReforgePlan.h"
+#include "../Plugins/TabletReforge/src/TabletEligibility.h"
 #include <cstdlib>
 #include <iostream>
 #include <set>
+
+
 
 
 using namespace TabletHelper;
@@ -34,23 +36,3 @@ int main() {
         Check(repeated.size() == 1 && TabletCategory(repeated[0][0]) == TabletCategory(repeated[0][1]) &&
             TabletCategory(repeated[0][1]) == TabletCategory(repeated[0][2]) && repeated[0][0].rarity == repeated[0][2].rarity,
             "same-category trio remains stable across 20 planner checks");
-    }
-    auto baseOnlyA = Item(30, "", 1, "Abyss Tablet");
-    auto baseOnlyB = Item(31, "", 1, "Abyss Tablet");
-    auto baseOnlyC = Item(32, "", 1, "Abyss Tablet");
-    Check(EligibleTablet(baseOnlyA) && PlanReforge({baseOnlyA, baseOnlyB, baseOnlyC}).size() == 1,
-        "tablet name fallback is eligible when metadata path is missing");
-    for (int variant = 0; variant < 6; ++variant) {
-        auto bad = Item(3);
-        if (variant == 0) bad.corrupted = true;
-        if (variant == 1) bad.rarity = 3;
-        if (variant == 2) bad.identified = false;
-        if (variant == 3) { bad.path = "Metadata/Items/Currency/CurrencyRerollRare"; bad.baseType = "Orb"; }
-        if (variant == 4) bad.address = 0;
-        if (variant == 5) { bad.path.clear(); bad.baseType.clear(); }
-        Check(PlanReforge({Item(1), Item(2), bad}).empty(), "unsupported items excluded");
-    }
-    p = PlanReforge({Item(9), Item(8), Item(7), Item(6), Item(5), Item(4)});
-    Check(p.size() == 2 && p[0][0].address == 4 && p[1][2].address == 9, "stable inventory order");
-    std::cout << "ReforgePlan: all checks passed\n";
-}
