@@ -1,5 +1,10 @@
 # Changelog
 
+## TabletReforge 0.6.8
+
+- Diagnostics now include each world's entity metadata path, targetability, and state so the placed Reforging Bench can be identified dynamically.
+
+
 ## TabletReforge 0.6.7
 
 - Increased tablet transfer, reforge, and result pickup pace by approximately 1.3x. The selected transfer-speed slider still applies; click pulse duration and six-second safety confirmation remain unchanged.

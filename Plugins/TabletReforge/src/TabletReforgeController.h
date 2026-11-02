@@ -673,6 +673,15 @@ class TabletReforgeController {
                 outlines_.push_back({*rect, identity.rarity});
         }
     }
+    static std::string WideToUtf8(const std::wstring& value) {
+        if (value.empty()) return {};
+        const int length = static_cast<int>(value.size());
+        const int bytes = ::WideCharToMultiByte(CP_UTF8, 0, value.data(), length, nullptr, 0, nullptr, nullptr);
+        if (bytes <= 0) return {};
+        std::string result(static_cast<size_t>(bytes), '\0');
+        ::WideCharToMultiByte(CP_UTF8, 0, value.data(), length, result.data(), bytes, nullptr, nullptr);
+        return result;
+    }
     void CaptureStashDiagnosticsImpl(const PluginSDK::Context* c, const std::filesystem::path& directory) {
         if (!c) return;
         try {
@@ -680,7 +689,7 @@ class TabletReforgeController {
             std::filesystem::create_directories(config);
             std::ofstream out(config / "tablet-reforge-diagnostics.txt", std::ios::trunc);
             if (!out) { status_ = "Could not write config/tablet-reforge-diagnostics.txt."; return; }
-            out << "TabletReforge 0.6.6 diagnostics\n"
+            out << "TabletReforge 0.6.8 diagnostics\n"
                 << "Captured status: " << status_ << "\n"
                 << "Controller phase=" << static_cast<int>(phase_)
                 << " stash_stage=" << static_cast<int>(stashStage_)
@@ -731,16 +740,20 @@ class TabletReforgeController {
                 << " game_window_foreground=" << world.GameWindowForeground << "\n";
             for (const auto& entity : world.Entities) {
                 float sx = 0, sy = 0;
+                const auto entityPath = WideToUtf8(entity.Path);
+                const bool targetable = entity.Components.Targetable &&
+                    c->Game.ReadTargetable(entity.Components.Targetable).IsTargetable;
                 const bool projected = c->Render.WorldToScreen(entity.WorldX, entity.WorldY,
                     entity.WorldZ + entity.ModelBoundsZ, sx, sy);
                 out << "entity id=" << entity.Id
                     << " type=" << static_cast<int>(entity.EntityType)
                     << " subtype=" << static_cast<int>(entity.EntitySubtype)
-                    << " valid=" << entity.IsValid
+                    << " state=" << static_cast<int>(entity.EntityState)
+                    << " valid=" << entity.IsValid << " targetable=" << targetable
                     << " targetable_component=" << entity.Components.Targetable
                     << " world=" << entity.WorldX << ',' << entity.WorldY << ',' << entity.WorldZ
                     << " screen_valid=" << projected << " screen=" << sx << ',' << sy
-                    << " path=[" << entity.TgtPath << "]\n";
+                    << " entity_path=[" << entityPath << "] targetable_path=[" << entity.TgtPath << "]\n";
             }
             const auto stashObjects = c->Game.EnumerateStashObjects();
             out << "\nStash objects available=" << stashObjects.has_value() << '\n';

@@ -1,4 +1,4 @@
-# TabletReforge 0.6.7
+# TabletReforge 0.6.8
 
 An English-only POEFixer plugin for reforging Path of Exile 2 tablets. Based on TabletHelper by Omer Faruk ARPA and POEFixer; distributed under GPL-3.0.
 
@@ -26,6 +26,8 @@ Stash and bench panels cannot stay open together, so the plugin pauses for the p
 - Rarity colors: Normal gray, Magic blue, Rare yellow.
 - **Esc** cancels an active step. If a validation fails, check the status message and recover any items manually before restarting.
 - The plugin uses live UI geometry and Ctrl + left click. It does not use fixed screen coordinates.
+
+Diagnostics now record world entity metadata paths and targetability to help locate the movable Reforging Bench.
 
 Repository: https://github.com/v1sualxD/TabletReforge
 
