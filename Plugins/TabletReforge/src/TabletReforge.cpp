@@ -8,7 +8,7 @@
 POEFIXER_PLUGIN_INFO(
     "TabletReforge",
     "Tablet Reforge",
-    "0.3.0",
+    "0.3.1",
     "TabletReforge contributors; Omer Faruk ARPA; POEFixer",
     "Reforge matching inventory tablets in batches of three, collect unidentified results, and display tablet types.")
 
