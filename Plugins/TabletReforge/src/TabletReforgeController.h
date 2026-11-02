@@ -234,8 +234,11 @@ class TabletReforgeController {
             if (!entity.IsValid) continue;
             const auto path = NormalizeIdentifier(WideToUtf8(entity.Path));
             const auto targetPath = NormalizeIdentifier(entity.TgtPath);
-            if (path.find("hideoutreforgingbench") == std::string::npos &&
-                targetPath.find("hideoutreforgingbench") == std::string::npos) continue;
+            // POEFixer exposes the hideout prop as MiscellaneousObjects/Hideout/ReforgingBench.
+            // PoE2DB's placeable-item metadata uses Items/Hideout/HideoutReforgingBench;
+            // accept the live world path used by POEFixer as well.
+            if (path.find("reforgingbench") == std::string::npos &&
+                targetPath.find("reforgingbench") == std::string::npos) continue;
             if (!entity.Components.Targetable) continue;
             const auto targetable = c->Components.ReadTargetable(entity.Components.Targetable);
             if (!targetable.Valid || !targetable.IsTargetable || targetable.HiddenFromPlayer) continue;
