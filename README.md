@@ -10,15 +10,15 @@ An English-only POEFixer plugin for reforging Path of Exile 2 tablets. Based on 
 
 Only identified, non-corrupted tablets are used. A batch always contains three tablets of the same category and rarity. Results and leftovers are not reused in the same batch plan.
 
-## Stash cycle (new in 0.5.8)
+## Stash cycle
 
 1. Open your **TABLET+FRAGMENTS** stash tab on **Tablets**. The plugin uses available inventory space and leaves unrelated items alone.
 2. Select the categories and rarities to process, then click **Start stash cycle** and close the POEFixer menu. Transfer and pickup waits are reduced by approximately 1.3x.
-3. The plugin scans the eight tablet categories in the confirmed left-to-right order and all six pages within each category. It withdraws only identified, non-corrupted tablets that match the selected categories and rarities. It stops when the inventory is full or the selected pages are exhausted.
-4. When prompted, open the Reforging Bench, click **Continue with Reforging Bench**, then close the POEFixer menu.
-5. When prompted again, open **TABLET+FRAGMENTS > Tablets**, click **Continue at Tablet stash**, then close the menu. The plugin returns results and leftovers to a page with space, then scans again until no compatible identified trio remains.
+3. The plugin scans the eight tablet categories and all six pages in each, withdrawing only identified, non-corrupted tablets matching the selected categories, rarities, minimum uses, and keep filters.
+4. It closes the stash, detects the Reforging Bench from its live world entity and screen position, opens it, and reforges compatible groups of three.
+5. It then closes the bench, finds and opens your own stash, returns results and leftovers, and repeats until no compatible trio remains. Panel switching is automatic; press **Esc** to cancel.
 
-Stash and bench panels cannot stay open together, so the plugin pauses for the player to switch between them. Only tablets withdrawn during this run and their reforge results are returned. If page contents cannot be matched uniquely to the live UI, the plugin stops without clicking.
+Bench detection uses its metadata path and current world position rather than fixed screen coordinates. If the plugin cannot find one visible, targetable match, it waits without clicking. Only tablets withdrawn during this run and their results are returned.
 
 ## Controls and safety
 
