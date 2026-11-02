@@ -9,7 +9,7 @@ An English-only POEFixer plugin for reforging Path of Exile 2 tablets. Based on 
 3. It withdraws eligible identified Magic or Rare tablets, closes the stash, detects and opens the movable Reforging Bench, and reforges groups of three from the same category and rarity.
 4. It closes the bench, reopens the stash, returns results and leftovers, then repeats until no compatible trio remains. Press **Esc** to cancel.
 
-Normal, unidentified, corrupted, and below-threshold tablets are excluded. Tablets matching selected keep mods remain in the stash. Only items withdrawn during this run and their results are returned. Transfer and pickup delays retain the selected speed setting and run about 1.3x faster than before.
+Normal, unidentified, corrupted, Sanctified, and below-threshold tablets are excluded. Before withdrawing a candidate, the plugin checks its live tooltip; Sanctified tablets stay in the stash. If it cannot read the tooltip, it stops before clicking. Tablets matching selected keep mods remain in the stash. Only items withdrawn during this run and their results are returned. Transfer and pickup delays retain the selected speed setting and run about 1.3x faster than before.
 
 ## Diagnostics
 
