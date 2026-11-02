@@ -9,7 +9,7 @@
 POEFIXER_PLUGIN_INFO(
     "TabletReforge",
     "Tablet Reforge",
-    "0.3.7",
+    "0.3.8",
     "TabletReforge contributors; Omer Faruk ARPA; POEFixer",
     "Reforge identified tablets in matching category and rarity trios, collect results without reusing unidentified tablets, and display tablet types.")
 
@@ -17,13 +17,13 @@ POEFIXER_PLUGIN_INFO(
 class TabletReforgePlugin : public PluginSDK::Plugin {
     TabletHelper::TabletReforgeController controller_;
     bool allTablets_ = true, showTabletTypes_ = true, running_ = false;
-    int executionSpeed_ = 7;
+    int executionSpeed_ = 15;
 public:
     const char* GetName() const override { return "Tablet Reforge"; }
     bool WantsOverlay() const override { return true; }
     void OnEnable(bool) override {
         if (!HostCompatible()) return;
-        allTablets_ = true; showTabletTypes_ = true; executionSpeed_ = 7;
+        allTablets_ = true; showTabletTypes_ = true; executionSpeed_ = 15;
         try {
             std::ifstream file(DirectoryPath() / "config" / "settings.json");
             if (file) {
@@ -33,7 +33,7 @@ public:
                 if (settings.is_object() && settings.contains("show_tablet_types") && settings["show_tablet_types"].is_boolean())
                     showTabletTypes_ = settings["show_tablet_types"].get<bool>();
                 if (settings.is_object() && settings.contains("execution_speed") && settings["execution_speed"].is_number_integer())
-                    executionSpeed_ = std::clamp(settings["execution_speed"].get<int>(), 1, 10);
+                    executionSpeed_ = std::clamp(settings["execution_speed"].get<int>(), 1, 20);
             }
         } catch (...) { ctx()->Log.Warn("TabletReforge: could not read settings; defaults are active."); }
         controller_.Reset(); running_ = true;
@@ -63,12 +63,18 @@ public:
             "Unidentified tablets are never used.");
         ImGui::BeginDisabled(controller_.Busy());
         if (ImGui::Checkbox("All tablets in inventory", &allTablets_)) SaveSettings();
-        if (ImGui::SliderInt("Tablet transfer speed", &executionSpeed_, 1, 10)) SaveSettings();
-        ImGui::TextDisabled("Controls placing and confirming input tablets. Result pickup waits 1.7 seconds.");
+        if (ImGui::SliderInt("Tablet transfer speed", &executionSpeed_, 1, 20)) SaveSettings();
+        ImGui::TextDisabled("Controls input clicks and confirmation cadence. Result pickup waits 0.7 seconds.");
         if (ImGui::Checkbox("Highlight tablet types", &showTabletTypes_)) SaveSettings();
         ImGui::Text("Eligible tablets: %llu", static_cast<unsigned long long>(controller_.SelectedCount()));
         ImGui::BeginDisabled(!allTablets_);
-        if (ImGui::Button("Start reforging")) controller_.RequestStart(ctx(), allTablets_, 2100 - executionSpeed_ * 200);
+        if (ImGui::Button("Start reforging")) {
+            const int transferDelayMs = executionSpeed_ <= 10
+                ? 2100 - executionSpeed_ * 200
+                : 100 - (executionSpeed_ - 10) * 9;
+            const int inputPulseMs = executionSpeed_ <= 10 ? 40 : 40 - (executionSpeed_ - 10) * 2;
+            controller_.RequestStart(ctx(), allTablets_, transferDelayMs, inputPulseMs);
+        }
         ImGui::EndDisabled();
         ImGui::EndDisabled();
         ImGui::TextWrapped("Open an empty Reforging Bench first. After starting, close this menu. "
