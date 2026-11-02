@@ -1,5 +1,13 @@
 # Changelog
 
+## TabletReforge 0.5.2
+
+- Removed tablet type and modifier filters and deleted saved filter profiles. Rarity choices remain; all tablet categories are considered and compatible trios still require the same category and rarity.
+
+## TabletReforge 0.5.1
+
+- Matched the tablet type list to TabletHelper's layout with category swatches, filter summaries and per-type Edit buttons. Inventory highlight colours remain rarity-based.
+
 ## TabletReforge 0.5.0
 
 - Added saved filter profiles with selection, creation, duplication, renaming and deletion. Each profile stores its tablet type settings, rarity selection and per-type modifier filters.

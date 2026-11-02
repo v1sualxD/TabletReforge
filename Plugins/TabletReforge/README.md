@@ -1,4 +1,4 @@
-# TabletReforge 0.5.0
+# TabletReforge 0.5.2
 
 An English-only POEFixer plugin for reforging identified Path of Exile 2 tablets from the inventory.
 Based on TabletHelper by Omer Faruk ARPA and POEFixer, distributed under GPL-3.0.
@@ -6,10 +6,9 @@ Based on TabletHelper by Omer Faruk ARPA and POEFixer, distributed under GPL-3.0
 ## Use
 
 1. Open an **empty Reforging Bench** and keep the inventory open.
-2. In the plugin menu, enable **All tablets in inventory**, choose the **Normal**, **Magic** and/or **Rare** rarities, and select the tablet types to process. Types start disabled.
-3. Use **Filter profile** to select a saved setup. **New**, **Duplicate**, **Delete**, and **Profile name** let you manage profiles; each profile saves its tablet types, rarity choices, and per-type Edit filters automatically. Use **Edit** beside a type to configure the bonuses and roll ranges to keep. Matching tablets are kept; other eligible tablets of that selected type and rarity can be reforged.
-4. Set **Tablet transfer speed**, then click **Start reforging**.
-5. Close the POEFixer menu within 30 seconds. The game must remain foregrounded. Press **Esc** to stop.
+2. In the plugin menu, enable **All tablets in inventory** and choose the **Normal**, **Magic** and/or **Rare** rarities to process.
+3. Set **Tablet transfer speed**, then click **Start reforging**.
+4. Close the POEFixer menu within 30 seconds. The game must remain foregrounded. Press **Esc** to stop.
 
 The plugin uses Ctrl + left click to move each input tablet from the inventory to the bench. The speed setting
 (1–20) controls input click duration, the pause before each transfer and the confirmation polling cadence. It activates **Reforge**
@@ -22,15 +21,14 @@ state is detected, the sequence stops and reports that the bench may need manual
 
 ## Tablet rules
 
-Only identified, non-corrupted tablets with an enabled type and selected rarity are considered. Tablets matching that type's configured keep filters are skipped. Remaining tablets with the same visible category and rarity are grouped, three at a time. Normal, Magic and Rare are independently selectable and all are enabled by default. Abyss, Expedition, Ritual and other types are never mixed. Internal metadata path variants of the
+Only identified, non-corrupted tablets of a selected rarity are considered. Tablets with the same visible category and rarity are grouped, three at a time. Normal, Magic and Rare are independently selectable and all are enabled by default. Abyss, Expedition, Ritual and other types are never mixed. Internal metadata path variants of the
 same category can be grouped together. Any one or two leftovers remain in the inventory. Reforged results
 are never added to the queue, so unidentified results are not reforged.
 
 When no compatible trio is found, the plugin writes each tablet path, base type, category, rarity,
 identification state and eligibility to `Plugins/TabletReforge/config/tablet-scan.txt`.
 
-**All tablets in inventory** is the only selection mode. The former Ctrl + Alt selection has been removed.
-The optional type labels show the tablet category on inventory items. Inventory highlights use rarity colours: gray for Normal, blue for Magic, and yellow for Rare.
+**All tablets in inventory** is the only selection mode. Type and modifier filters and saved profiles have been removed. The optional type labels show the tablet category on inventory items. Inventory highlights use rarity colours: gray for Normal, blue for Magic, and yellow for Rare.
 
 ## Bench recognition and safety
 
