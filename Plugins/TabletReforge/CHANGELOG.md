@@ -1,5 +1,9 @@
 # Changelog
 
+## TabletReforge 0.6.3
+
+- Fixed stash-page matching to follow POEFixer's active tablet grid after switching categories or pages, instead of comparing against stale UI cells captured earlier.
+
 ## TabletReforge 0.5.8
 
 - Added a stash cycle that scans the eight Tablet stash categories and their six pages, withdraws selected identified tablets, pauses for manual switching to the Reforging Bench, then pauses again to return results and leftovers to the stash.
