@@ -1,7 +1,14 @@
 # Changelog
+
+## TabletReforge 0.5.8
+
+- Added a stash cycle that scans the eight Tablet stash categories and their six pages, withdraws selected identified tablets, pauses for manual switching to the Reforging Bench, then pauses again to return results and leftovers to the stash.
+- Added live stash grid discovery and exact occupied-slot matching. Ambiguous or missing page matches stop safely without clicking.
+- Stash cycling requires an empty inventory and uses only Ctrl + left click for item transfers.
+
 ## TabletReforge 0.5.3
 
-- Fixed all selected tablet rarities being excluded when modifier filters were removed. Eligible tablets now form same-category, same-rarity trios.
+- Fixed all tablets being treated as protected when modifier filters are removed. Eligible tablets of selected rarities are now grouped into same-category, same-rarity trios.
 
 ## TabletReforge 0.5.2
 

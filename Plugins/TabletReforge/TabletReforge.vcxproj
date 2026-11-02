@@ -113,6 +113,7 @@
     <ClInclude Include="src\TabletReforgeController.h" />
     <ClInclude Include="src\TabletEligibility.h" />
     <ClInclude Include="src\ReforgeUiDiscovery.h" />
+    <ClInclude Include="src\TabletStashDiscovery.h" />
     <ClInclude Include="src\ReforgePlan.h" />
     <ClInclude Include="src\ItemRects.h" />
     <ClInclude Include="src\TabletTypes.h" />
