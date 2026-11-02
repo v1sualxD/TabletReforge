@@ -1,5 +1,13 @@
 name: Build TabletReforge
 on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/build-autoreforge.yml'
+      - 'Plugins/TabletReforge/src/**'
+      - 'Plugins/TabletReforge/TabletReforge.vcxproj'
+      - 'POEFixer/**'
+      - 'README.md'
   workflow_dispatch:
 jobs:
   build:
