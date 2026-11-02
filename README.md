@@ -6,7 +6,7 @@ An English-only POEFixer plugin for reforging Path of Exile 2 tablets. Based on 
 
 Select categories, rarities, minimum uses, and keep-mod filters, then click the single **Start automatic cycle** button. The plugin opens your own stash, selects the Tablet tab and Tablets section, scans selected categories and pages, opens the movable Reforging Bench, processes same-category/same-rarity trios, and returns results and leftovers to the stash. It repeats until no compatible trio remains. Press **Esc** to stop.
 
-Normal, unidentified, corrupted, and below-threshold tablets are excluded. Matching keep-mod tablets stay in the stash. The transfer-speed setting is retained, with action and pickup delays about 1.3x faster.
+Normal, unidentified, corrupted, Sanctified, and below-threshold tablets are excluded. The plugin checks each candidate's live tooltip before withdrawal and stops safely if it cannot read it. Matching keep-mod tablets stay in the stash. The transfer-speed setting is retained, with action and pickup delays about 1.3x faster.
 
 ## Controls and safety
 
