@@ -8,6 +8,7 @@
 #include <map>
 #include <optional>
 
+
 namespace TabletHelper {
 struct TabletLabel { ScreenRect rect; std::string type; };
 class TabletReforgeController {
@@ -34,13 +35,30 @@ class TabletReforgeController {
     Clock::time_point inputDue_{};
     static constexpr int kInputPulseMs = 40;
 
+
     static ReforgeItem Identity(const PluginSDK::InventoryItem& i) {
-        return {i.Address, i.Path, i.Rarity, i.ItemLevel, i.SlotX, i.SlotY, i.IsIdentified, i.IsCorrupted};
+        return {i.Address, i.Path, i.BaseTypeName, i.Rarity, i.ItemLevel, i.SlotX, i.SlotY, i.IsIdentified, i.IsCorrupted};
     }
     static std::map<uintptr_t, ReforgeItem> Bag(const PluginSDK::Inventory& inv) {
         std::map<uintptr_t, ReforgeItem> bag;
         for (const auto& item : inv.Items) if (item.Address) bag.emplace(item.Address, Identity(item));
         return bag;
+    }
+    static void WriteScanDiagnostic(const PluginSDK::Inventory& inv, const std::filesystem::path& directory) {
+        try {
+            const auto config = directory / "config";
+            std::filesystem::create_directories(config);
+            std::ofstream out(config / "tablet-scan.txt", std::ios::trunc);
+            out << "TabletReforge 0.3.2 inventory scan\n"
+                << "slot_x,slot_y,path,base_type,category,rarity,identified,corrupted,eligible\n";
+            for (const auto& item : inv.Items) {
+                const auto identity = Identity(item);
+                if (!LooksLikeTablet(item.Path, item.BaseTypeName)) continue;
+                out << item.SlotX << ',' << item.SlotY << ',' << item.Path << ',' << item.BaseTypeName << ','
+                    << TabletCategory(identity) << ',' << item.Rarity << ',' << item.IsIdentified << ','
+                    << item.IsCorrupted << ',' << EligibleTablet(identity) << '\n';
+            }
+        } catch (...) {}
     }
     static bool Foreground(const PluginSDK::Context* c) {
         return c->Game.IsInGame() && !c->Game.IsMenuVisible() && c->Game.GetGameWindow() &&
@@ -81,7 +99,7 @@ class TabletReforgeController {
         try {
             std::filesystem::create_directories(directory / "config");
             std::ofstream out(directory / "config" / "reforge-ui.txt", std::ios::trunc);
-            out << "TabletReforge 0.3.0 UI discovery: " << nodes.size() << " nodes; budget=" << budget << '\n';
+            out << "TabletReforge 0.3.2 UI discovery: " << nodes.size() << " nodes; budget=" << budget << '\n';
             for (size_t index = 0; index < nodes.size(); ++index) {
                 const auto& n = nodes[index];
                 const auto textId = NormalizeIdentifier(n.text);
@@ -199,7 +217,7 @@ class TabletReforgeController {
         if (!GridDrawn(inv, static_cast<float>(client.right), static_cast<float>(client.bottom))) return;
         for (const auto& item : inv.Items) {
             const auto identity = Identity(item);
-            if (!ContainsCI(item.Path, "toweraugment")) continue;
+            if (!LooksLikeTablet(item.Path, item.BaseTypeName)) continue;
             const auto rect = ResolveItemRect(inv, item, HasItemRects(inv), true,
                 static_cast<float>(client.right), static_cast<float>(client.bottom));
             if (!rect) continue;
@@ -264,9 +282,16 @@ public:
         if (phase_ == Phase::InitialScan) {
             std::vector<ReforgeItem> candidates;
             for (const auto& [address, identity] : bag) { (void)address; if (EligibleTablet(identity)) candidates.push_back(identity); }
+            const size_t eligibleCount = candidates.size();
             batches_ = PlanReforge(std::move(candidates));
             expected_ = bag; batch_ = item_ = 0;
-            if (batches_.empty()) { Stop("No compatible trio: each batch needs three identified tablets of the same base and rarity."); return; }
+            if (batches_.empty()) {
+                WriteScanDiagnostic(inv, directory);
+                const auto message = "No compatible trio found among " + std::to_string(eligibleCount) +
+                    " eligible tablets. Requires three of the same category and rarity. See config/tablet-scan.txt.";
+                Stop(message.c_str());
+                return;
+            }
             phase_ = Phase::Transfer;
         }
         if (phase_ == Phase::Transfer) {
@@ -311,7 +336,7 @@ public:
                 if (item == additions.end() || item->second != identity) { Stop("Stopped: unexpected inventory contents."); return; }
                 additions.erase(item);
             }
-            if (additions.size() != 1 || additions.begin()->second.path != batches_[batch_][0].path ||
+            if (additions.size() != 1 || TabletCategory(additions.begin()->second) != TabletCategory(batches_[batch_][0]) ||
                 additions.begin()->second.rarity != batches_[batch_][0].rarity) {
                 Stop("Stopped: unexpected result. Check the bench before restarting."); return;
             }
