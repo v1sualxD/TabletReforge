@@ -1,0 +1,1 @@
+TabletReforge v0.7.1: wait and retry stash/bench interactions, tolerate POEFixer inventory rescans while checking a tablet tooltip, and attempt to close the focused POEFixer menu when the automatic cycle starts.
