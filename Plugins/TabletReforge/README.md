@@ -1,4 +1,4 @@
-# TabletReforge 0.6.8
+# TabletReforge 0.6.9
 
 An English-only POEFixer plugin for reforging Path of Exile 2 tablets. Based on TabletHelper by Omer Faruk ARPA and POEFixer; distributed under GPL-3.0.
 
