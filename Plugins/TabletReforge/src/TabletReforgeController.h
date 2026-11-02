@@ -30,7 +30,8 @@ class TabletReforgeController {
     size_t batch_ = 0, item_ = 0;
     Clock::time_point requestExpires_{}, actionAt_{}, deadline_{}, nextScan_{};
     std::string status_ = "Open an empty Reforging Bench, then press Start reforging.";
-    int actionDelayMs_ = 700;
+    static constexpr int kActionDelayMs = 700;
+    int resultPickupDelayMs_ = 2000;
     enum class InputPhase { Idle, MoveAndModifier, ButtonDown, ButtonUp, ModifierUp };
     InputPhase inputPhase_ = InputPhase::Idle;
     bool ownedCtrl_ = false, ownedButton_ = false;
@@ -72,7 +73,7 @@ class TabletReforgeController {
             const auto config = directory / "config";
             std::filesystem::create_directories(config);
             std::ofstream out(config / "tablet-scan.txt", std::ios::trunc);
-            out << "TabletReforge 0.3.5 inventory scan\n"
+            out << "TabletReforge 0.3.6 inventory scan\n"
                 << "slot_x,slot_y,path,base_type,raw_rarity,raw_identified,mods_valid,mods_rarity,mods_identified,mods_corrupted,category,effective_rarity,effective_identified,effective_corrupted,eligible\n";
             for (const auto& item : inv.Items) {
                 if (!LooksLikeTablet(item.Path, item.BaseTypeName)) continue;
@@ -149,7 +150,7 @@ class TabletReforgeController {
         try {
             std::filesystem::create_directories(directory / "config");
             std::ofstream out(directory / "config" / "reforge-ui.txt", std::ios::trunc);
-            out << "TabletReforge 0.3.5 UI discovery: " << nodes.size() << " nodes; budget=" << budget << '\n';
+            out << "TabletReforge 0.3.6 UI discovery: " << nodes.size() << " nodes; budget=" << budget << '\n';
             for (size_t index = 0; index < nodes.size(); ++index) {
                 const auto& n = nodes[index];
                 const auto textId = NormalizeIdentifier(n.text);
@@ -289,10 +290,10 @@ public:
     const std::string& Status() const { return status_; }
     void Stop(const char* reason) { ReleaseInput(); phase_ = Phase::Idle; pending_ = false; targets_.reset(); status_ = reason; }
     void Reset() { Stop("Open an empty Reforging Bench, then press Start reforging."); outlines_.clear(); labels_.clear(); displayedCount_ = 0; }
-    void RequestStart(const PluginSDK::Context* c, bool all, int speed) {
+    void RequestStart(const PluginSDK::Context* c, bool all, int resultPickupDelayMs) {
         if (Busy()) return;
         if (!all) { status_ = "Enable All tablets in inventory before starting."; return; }
-        all_ = all; actionDelayMs_ = 2100 - std::clamp(speed, 1, 10) * 200; pending_ = true;
+        all_ = all; resultPickupDelayMs_ = std::clamp(resultPickupDelayMs, 200, 2000); pending_ = true;
         area_ = c->Game.GetAreaChangeCounter(); window_ = c->Game.GetGameWindow();
         requestExpires_ = Clock::now() + std::chrono::seconds(30);
         status_ = "Close the POEFixer menu to start. Keep the empty Reforging Bench open. Esc cancels.";
@@ -323,7 +324,9 @@ public:
         if (!Running()) return;
         if (!Ready(c)) { Stop("Stopped: bench closed, moved, resized, or another automation started."); return; }
         if (now > deadline_) { Stop("Stopped: no confirmation within 6 seconds. Check the bench before restarting."); return; }
-        if (now - actionAt_ < std::chrono::milliseconds(actionDelayMs_)) return;
+        const int phaseDelayMs = phase_ == Phase::PlaceResult
+            ? resultPickupDelayMs_ : kActionDelayMs;
+        if (now - actionAt_ < std::chrono::milliseconds(phaseDelayMs)) return;
         const auto snapshot = c->Inventory.ReadSnapshot(1);
         if (!snapshot.Ready || snapshot.ScanStamp == stamp_) return;
         if (snapshot.AreaChangeCounter != area_) { Stop("Stopped: stale inventory from another area."); return; }
