@@ -3,6 +3,7 @@
 #include "../../../POEFixer/imgui/imgui.h"
 #include "../lib/nlohmann/json.hpp"
 #include <fstream>
+#include <stdexcept>
 
 POEFIXER_PLUGIN_INFO(
     "TabletReforge",
@@ -71,8 +72,8 @@ public:
         if (!ctx()->Game.IsInGame() || !ctx()->Game.IsForeground()) return;
         auto* draw = ImGui::GetBackgroundDrawList();
         for (const auto& r : controller_.Outlines()) {
-            draw->AddRect(ImVec2(r.x + 2, r.y + 2), ImVec2(r.x + r.w - 2, r.y + r.h - 2), IM_COL32(70, 255, 120, 255), 2, 0, 3);
-            draw->AddRectFilled(ImVec2(r.x + 2, r.y + 2), ImVec2(r.x + r.w - 2, r.y + r.h - 2), IM_COL32(70, 255, 120, 25), 2);
+            draw->AddRect(ImVec2(r.x + 2, r.y + 2), ImVec2(r.x + r.w - 2, r.y + r.h - 2), IM_COL32(70, 255, 120, 255), 2.0f, 3.0f, ImDrawFlags_None);
+            draw->AddRectFilled(ImVec2(r.x + 2, r.y + 2), ImVec2(r.x + r.w - 2, r.y + r.h - 2), IM_COL32(70, 255, 120, 25), 2.0f);
         }
         if (controller_.Busy()) {
             ImGui::SetNextWindowPos(ImVec2(12, 12), ImGuiCond_Always);
