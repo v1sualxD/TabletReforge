@@ -90,6 +90,7 @@ class TabletReforgeController {
         if (rule == typeRules.end() || !rule->enabled) return false;
         const auto parsed = parsedCache_.find(item.address);
         if (parsed == parsedCache_.end() || !parsed->second.modsRead) return false;
+        if (!TabletHelper::HasFilters(*rule)) return true;
         // If the SDK did not expose any mod identities, do not treat an unreadable
         // tablet as a failed keep filter and risk reforging it by accident.
         if (TabletHelper::HasFilters(*rule) && parsed->second.matchKeys.empty()) return false;
