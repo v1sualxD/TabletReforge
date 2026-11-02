@@ -1,7 +1,6 @@
 name: Build TabletReforge
 on:
   workflow_dispatch:
-
 jobs:
   build:
     runs-on: windows-2022
@@ -9,7 +8,7 @@ jobs:
       contents: read
     steps:
       - uses: actions/checkout@v4
-      - name: Compile plugin and run planner tests
+      - name: Compile plugin and run tests
         shell: pwsh
         run: |
           $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
@@ -18,20 +17,18 @@ jobs:
           & "$vs\MSBuild\Current\Bin\MSBuild.exe" TabletReforge.sln /m /p:Configuration=Release /p:Platform=x64
           if ($LASTEXITCODE -ne 0) { throw 'Plugin build failed' }
           $devcmd = "$vs\Common7\Tools\VsDevCmd.bat"
-          $testCommand = '"' + $devcmd + '" -arch=x64 -host_arch=x64 && cl /nologo /std:c++20 /EHsc /W4 /Fe:work-tests.exe tests\ReforgePlanTests.cpp && work-tests.exe'
-          & cmd.exe /d /s /c $testCommand
-          if ($LASTEXITCODE -ne 0) { throw 'Planner tests failed' }
-          $filterCommand = '"' + $devcmd + '" -arch=x64 -host_arch=x64 && cl /nologo /std:c++20 /EHsc /W4 /Fe:work-filter-tests.exe tests\ReforgeFilterTests.cpp && work-filter-tests.exe'
-          & cmd.exe /d /s /c $filterCommand
-          if ($LASTEXITCODE -ne 0) { throw 'Filter tests failed' }
+          foreach ($test in @('ReforgePlanTests', 'SelectionTests')) {
+            $command = '"' + $devcmd + '" -arch=x64 -host_arch=x64 && cl /nologo /std:c++20 /EHsc /W4 /Fe:' + $test + '.exe tests\' + $test + '.cpp && ' + $test + '.exe'
+            & cmd.exe /d /s /c $command
+            if ($LASTEXITCODE -ne 0) { throw "$test failed" }
+          }
       - name: Package plugin
         shell: pwsh
         run: |
           $destination = 'package/Plugins/TabletReforge'
           New-Item -ItemType Directory -Force $destination | Out-Null
           Copy-Item x64/Release/Plugins/TabletReforge/TabletReforge.dll $destination
-          Copy-Item Plugins/TabletReforge/lang $destination -Recurse
-          Copy-Item LICENSE, AUTOREFORGE-FR.md $destination
+          Copy-Item LICENSE, README.md $destination
           Compress-Archive -Path package/Plugins -DestinationPath TabletReforge.zip
       - uses: actions/upload-artifact@v4
         with:
