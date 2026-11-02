@@ -18,9 +18,13 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Plugin build failed' }
           $devcmd = "$vs\Common7\Tools\VsDevCmd.bat"
           foreach ($test in @('ReforgePlanTests', 'SelectionTests')) {
-            $command = '"' + $devcmd + '" -arch=x64 -host_arch=x64 && cl /nologo /std:c++20 /EHsc /W4 /Fe:' + $test + '.exe tests\' + $test + '.cpp && ' + $test + '.exe'
+            $command = '"' + $devcmd + '" -arch=x64 -host_arch=x64 && cl /nologo /std:c++20 /EHsc /W4 /Fe:' + $test + '.exe tests\' + $test + '.cpp'
             & cmd.exe /d /s /c $command
-            if ($LASTEXITCODE -ne 0) { throw "$test failed" }
+            if ($LASTEXITCODE -ne 0) { throw "$test compile failed" }
+            for ($pass = 1; $pass -le 20; $pass++) {
+              & ".\$test.exe"
+              if ($LASTEXITCODE -ne 0) { throw "$test failed on verification pass $pass" }
+            }
           }
       - name: Package plugin
         shell: pwsh
