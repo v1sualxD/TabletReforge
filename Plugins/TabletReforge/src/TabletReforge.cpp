@@ -38,7 +38,7 @@ uint8_t MakeRarityMask(bool magic, bool rare) {
 POEFIXER_PLUGIN_INFO(
     "TabletReforge",
     "Tablet Reforge",
-    "0.6.4",
+    "0.6.5",
     "TabletReforge contributors; Omer Faruk ARPA; POEFixer",
     "Reforge identified tablets by rarity in matching category trios, collect results without reusing unidentified tablets, and display tablet types.")
 
