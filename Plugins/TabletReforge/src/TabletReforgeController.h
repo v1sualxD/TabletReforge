@@ -674,10 +674,19 @@ class TabletReforgeController {
         try {
             const auto config = directory / "config";
             std::filesystem::create_directories(config);
-            std::ofstream out(config / "tablet-stash-ui.txt", std::ios::trunc);
-            if (!out) { status_ = "Could not write config/tablet-stash-ui.txt."; return; }
-            out << "TabletReforge stash UI diagnostics\n"
-                << "Open the Tablet stash tab before capturing. Screen rectangles are client pixels.\n\n";
+            std::ofstream out(config / "tablet-reforge-diagnostics.txt", std::ios::trunc);
+            if (!out) { status_ = "Could not write config/tablet-reforge-diagnostics.txt."; return; }
+            out << "TabletReforge 0.6.6 diagnostics\\n"
+                << "Captured status: " << status_ << "\\n"
+                << "Controller phase=" << static_cast<int>(phase_)
+                << " stash_stage=" << static_cast<int>(stashStage_)
+                << " stash_cycle=" << stashCycle_ << " running=" << Running()
+                << " pending=" << pending_ << "\\n"
+                << "stash_category_index=" << stashCategory_ << " stash_page_index=" << stashPage_
+                << " tracked_session_items=" << stashSessionAddresses_.size()
+                << " selected_categories=" << stashCategories_.size()
+                << " rarity_mask=" << static_cast<int>(stashRarityMask_) << "\\n"
+                << "Screen rectangles are client pixels. Entity screen coordinates are projections.\\n\\n";
 
             const auto tabs = c->Game.EnumerateStashTabs(PluginSDK::StashDomain::Own);
             out << "Own stash tabs: supported=" << tabs.Supported << " status=" << tabs.Status << '\n';
@@ -712,7 +721,35 @@ class TabletReforgeController {
                 }
             }
 
-            out << "\nVisible UI tree (max 8000 nodes):\n";
+            out << "\\nWorld entities (diagnostic snapshot):\\n";
+            const auto world = c->Game.GetSnapshot();
+            out << "area=" << world.CurrentAreaName << " entity_count=" << world.Entities.size()
+                << " game_window_foreground=" << world.GameWindowForeground << "\\n";
+            for (const auto& entity : world.Entities) {
+                float sx = 0, sy = 0;
+                const bool projected = c->Render.WorldToScreen(entity.WorldX, entity.WorldY,
+                    entity.WorldZ + entity.ModelBoundsZ, sx, sy);
+                out << "entity id=" << entity.Id
+                    << " type=" << static_cast<int>(entity.EntityType)
+                    << " subtype=" << static_cast<int>(entity.EntitySubtype)
+                    << " valid=" << entity.IsValid
+                    << " targetable_component=" << entity.Components.Targetable
+                    << " world=" << entity.WorldX << ',' << entity.WorldY << ',' << entity.WorldZ
+                    << " screen_valid=" << projected << " screen=" << sx << ',' << sy
+                    << " path=[" << entity.TgtPath << "]\\n";
+            }
+            const auto stashObjects = c->Game.EnumerateStashObjects();
+            out << "\\nStash objects available=" << stashObjects.has_value() << '\\n';
+            if (stashObjects) for (const auto& object : *stashObjects) {
+                float sx = 0, sy = 0;
+                const bool projected = c->Render.WorldToScreen(object.WorldX, object.WorldY, object.WorldZ, sx, sy);
+                out << "stash entity=" << object.EntityId << " domain=" << static_cast<int>(object.Domain)
+                    << " rank=" << object.Rank << " world=" << object.WorldX << ',' << object.WorldY
+                    << ',' << object.WorldZ << " screen_valid=" << projected << " screen=" << sx << ',' << sy
+                    << " path=[" << object.Path << "]\\n";
+            }
+
+            out << "\\nVisible UI tree (max 8000 nodes):\\n";
             std::vector<BenchNode> nodes;
             int budget = 8000;
             ReadUi(c, c->Ui.GetGameUiRoot(), -1, 0, budget, nodes);
@@ -724,9 +761,9 @@ class TabletReforgeController {
                     << n.w << 'x' << n.h << '\n';
             }
             out << "remaining_node_budget=" << budget << '\n';
-            status_ = "Stash UI diagnostics saved to config/tablet-stash-ui.txt.";
+            status_ = "Diagnostics saved to config/tablet-reforge-diagnostics.txt.";
         } catch (...) {
-            status_ = "Could not capture stash UI diagnostics.";
+            status_ = "Could not capture TabletReforge diagnostics.";
         }
     }
 public:
