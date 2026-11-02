@@ -8,7 +8,7 @@ Le bouton **Lancer la reforge** traite les autres tablettes identifiées du sac,
 les catégories explicitement autorisées : Abyss ×3, Expedition ×3, etc., avec même base et rareté.
 Les résultats sont remis dans le sac ; les tablettes non identifiées ne sont jamais sélectionnées.
 
-**État : sources expérimentales. Aucune DLL n'a été compilée ici et aucun test en jeu n'a été réalisé.**
+**État : DLL Release x64 compilée sur GitHub Actions, avec 0 erreur et 0 avertissement de compilation. Les deux programmes de tests ont réussi. Le comportement en jeu reste expérimental et non validé.**
 Le code des tests est fourni et le workflow les exécute avant de produire l'archive de la DLL.
 
 Lire [le guide français](AUTOREFORGE-FR.md) pour compiler, calibrer et installer.

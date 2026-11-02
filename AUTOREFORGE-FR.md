@@ -3,9 +3,7 @@
 ## État
 
 Sources expérimentales de TabletReforge 0.1.0, plugin indépendant dérivé de TabletHelper 1.4.7.
-Aucune DLL n'a été compilée ici : cette machine n'a ni MSVC ni le SDK Windows nécessaires.
-Les tests C++ sont fournis mais n'ont pas été exécutés ici. Le workflow GitHub compile la DLL
-et exécute les tests avant de fabriquer TabletReforge.zip. Le fonctionnement en jeu reste à valider.
+Compilation Release x64 réussie sur GitHub Actions le 2 novembre 2026 : 0 erreur et 0 avertissement de compilation. Les deux programmes de tests ont réussi. Le fonctionnement en jeu reste à valider.
 
 ## Sélection des tablettes
 
