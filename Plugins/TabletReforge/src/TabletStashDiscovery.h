@@ -34,35 +34,34 @@ struct TabletStashPageMatch {
     PluginSDK::Inventory inventory;
 };
 
-// POEFixer exposes stash items without screen rectangles. Match the currently
-// rendered page to one 12x8 inventory by its occupied grid cells and category.
-// A non-unique result is rejected so the controller can stop without clicking
-// an item from a different page.
+// POEFixer exposes stash items without per-item screen rectangles. The active
+// stash page is identified by its live inventory-grid geometry; inactive tablet
+// categories/pages have Grid.Valid=false. Do not use occupiedSlots here: those
+// are a UI snapshot captured before category/page navigation and become stale.
 inline TabletStashPageMatch MatchVisibleStashPage(const TabletStashTargets& targets,
     const std::vector<PluginSDK::Inventory>& inventories, const std::string& category) {
-    std::set<std::pair<int, int>> visible;
-    for (const auto& slot : targets.occupiedSlots) visible.emplace(slot.x, slot.y);
-    if (visible.empty()) return {TabletStashPageMatchState::Empty, {}};
-
     std::optional<PluginSDK::Inventory> match;
     for (const auto& inventory : inventories) {
-        if (inventory.TotalBoxesX != 12 || inventory.TotalBoxesY != 8 || inventory.Items.empty()) continue;
-        std::set<std::pair<int, int>> occupied;
-        bool onlyTabletsOfCategory = true;
-        for (const auto& item : inventory.Items) {
-            const std::string type = ClassifyFromText(item.Path, item.BaseTypeName);
-            if (!LooksLikeTablet(item.Path, item.BaseTypeName) || type != category ||
-                item.SlotX < 0 || item.SlotX >= 12 || item.SlotY < 0 || item.SlotY >= 8) {
-                onlyTabletsOfCategory = false;
-                break;
-            }
-            occupied.emplace(item.SlotX, item.SlotY);
-        }
-        if (!onlyTabletsOfCategory || occupied != visible) continue;
+        if (inventory.TotalBoxesX != 12 || inventory.TotalBoxesY != 8 || !inventory.Grid.Valid)
+            continue;
+        const auto near = [](float a, float b) { return std::abs(a - b) <= 2.5f; };
+        if (!near(inventory.Grid.GridScreenX, targets.grid.x) ||
+            !near(inventory.Grid.GridScreenY, targets.grid.y) ||
+            !near(inventory.Grid.CellSize, targets.cellSize)) continue;
         if (match) return {TabletStashPageMatchState::Ambiguous, {}};
         match = inventory;
     }
     if (!match) return {TabletStashPageMatchState::Missing, {}};
+    if (match->Items.empty()) return {TabletStashPageMatchState::Empty, {}};
+
+    // The active grid geometry uniquely identifies the visible inventory. Verify
+    // its contents before allowing any cursor input.
+    for (const auto& item : match->Items) {
+        if (!LooksLikeTablet(item.Path, item.BaseTypeName) ||
+            ClassifyFromText(item.Path, item.BaseTypeName) != category ||
+            item.SlotX < 0 || item.SlotX >= 12 || item.SlotY < 0 || item.SlotY >= 8)
+            return {TabletStashPageMatchState::Missing, {}};
+    }
     return {TabletStashPageMatchState::Matched, std::move(*match)};
 }
 
@@ -221,3 +220,4 @@ inline std::optional<TabletStashTargets> DiscoverTabletStash(
 }
 
 } // namespace TabletHelper
+
