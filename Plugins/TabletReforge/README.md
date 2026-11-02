@@ -1,4 +1,4 @@
-# TabletReforge 0.3.9
+# TabletReforge 0.4.0
 
 An English-only POEFixer plugin for reforging identified Path of Exile 2 tablets from the inventory.
 Based on TabletHelper by Omer Faruk ARPA and POEFixer, distributed under GPL-3.0.
@@ -6,7 +6,7 @@ Based on TabletHelper by Omer Faruk ARPA and POEFixer, distributed under GPL-3.0
 ## Use
 
 1. Open an **empty Reforging Bench** and keep the inventory open.
-2. In the plugin menu, enable **All tablets in inventory** and optionally **Highlight tablet types**.
+2. In the plugin menu, enable **All tablets in inventory**, choose the **Normal**, **Magic** and/or **Rare** rarities, and optionally enable **Highlight tablet types**.
 3. Set **Tablet transfer speed**, then click **Start reforging**.
 4. Close the POEFixer menu within 30 seconds. The game must remain foregrounded. Press **Esc** to stop.
 
@@ -21,8 +21,8 @@ state is detected, the sequence stops and reports that the bench may need manual
 
 ## Tablet rules
 
-Only identified, non-corrupted tablets with the same visible category and rarity are grouped, three at a
-time. Abyss, Expedition, Ritual and other types are never mixed. Internal metadata path variants of the
+Only identified, non-corrupted tablets with a selected rarity and the same visible category are grouped, three at a
+time. Normal, Magic and Rare are independently selectable and all are enabled by default. Abyss, Expedition, Ritual and other types are never mixed. Internal metadata path variants of the
 same category can be grouped together. Any one or two leftovers remain in the inventory. Reforged results
 are never added to the queue, so unidentified results are not reforged.
 
