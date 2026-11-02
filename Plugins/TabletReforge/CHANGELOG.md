@@ -1,5 +1,11 @@
 # Changelog
 
+## TabletReforge 0.6.5
+
+- Removed Normal rarity from reforging and stash withdrawals; only Magic and Rare tablets can be processed.
+- Added a shared minimum-uses threshold from 1 to 10 for both stash withdrawal and inventory reforging.
+- Reorganized the settings panel into clearer processing, category, rarity, keep-filter, action and status sections.
+
 ## TabletReforge 0.6.4
 
 - Fixed active Tablet stash page matching after category/page navigation using POEFixer grid geometry rather than a stale occupied-slot snapshot.
