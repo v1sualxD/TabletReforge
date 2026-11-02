@@ -401,7 +401,7 @@ class TabletReforgeController {
         bool tooltipTitleFound = false;
         bool sanctifiedTextFound = false;
         for (const auto& node : nodes) {
-            const auto text = NormalizeIdentifier(c->Ui.GetText(node.address));
+            const auto text = NormalizeIdentifier(c->Ui.GetText(node.address) + " " + node.text + " " + node.name);
             if (text.empty()) continue;
             if (text.find(expectedBase) != std::string::npos) tooltipTitleFound = true;
             if (text.find("sanctified") != std::string::npos) sanctifiedTextFound = true;
@@ -591,6 +591,8 @@ class TabletReforgeController {
 
         const auto now = Clock::now();
         if (now - stashActionAt_ < std::chrono::milliseconds(190)) return;
+        if (stashStage_ == StashStage::CheckTabletTooltip &&
+            now - stashActionAt_ < std::chrono::milliseconds(350)) return;
         if (stashStage_ == StashStage::CloseStashForBench) {
             if (TabletStashPanelOpen(c)) {
                 if (!PressEscape(c)) { status_ = "Waiting to close the Tablet stash safely..."; return; }
