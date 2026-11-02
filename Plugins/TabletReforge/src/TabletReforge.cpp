@@ -9,7 +9,7 @@
 POEFIXER_PLUGIN_INFO(
     "TabletReforge",
     "Tablet Reforge",
-    "0.3.6",
+    "0.3.7",
     "TabletReforge contributors; Omer Faruk ARPA; POEFixer",
     "Reforge identified tablets in matching category and rarity trios, collect results without reusing unidentified tablets, and display tablet types.")
 
@@ -64,7 +64,7 @@ public:
         ImGui::BeginDisabled(controller_.Busy());
         if (ImGui::Checkbox("All tablets in inventory", &allTablets_)) SaveSettings();
         if (ImGui::SliderInt("Tablet transfer speed", &executionSpeed_, 1, 10)) SaveSettings();
-        ImGui::TextDisabled("Controls moving tablets into the bench. Result pickup waits 2 seconds.");
+        ImGui::TextDisabled("Controls placing and confirming input tablets. Result pickup waits 1.7 seconds.");
         if (ImGui::Checkbox("Highlight tablet types", &showTabletTypes_)) SaveSettings();
         ImGui::Text("Eligible tablets: %llu", static_cast<unsigned long long>(controller_.SelectedCount()));
         ImGui::BeginDisabled(!allTablets_);

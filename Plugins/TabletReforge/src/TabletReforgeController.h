@@ -32,7 +32,7 @@ class TabletReforgeController {
     std::string status_ = "Open an empty Reforging Bench, then press Start reforging.";
     static constexpr int kActionDelayMs = 700;
     int inputTransferDelayMs_ = 700;
-    static constexpr int kResultPickupPauseMs = 2000;
+    static constexpr int kResultPickupPauseMs = 1700;
     enum class InputPhase { Idle, MoveAndModifier, ButtonDown, ButtonUp, ModifierUp };
     InputPhase inputPhase_ = InputPhase::Idle;
     bool ownedCtrl_ = false, ownedButton_ = false;
@@ -74,7 +74,7 @@ class TabletReforgeController {
             const auto config = directory / "config";
             std::filesystem::create_directories(config);
             std::ofstream out(config / "tablet-scan.txt", std::ios::trunc);
-            out << "TabletReforge 0.3.6 inventory scan\n"
+            out << "TabletReforge 0.3.7 inventory scan\n"
                 << "slot_x,slot_y,path,base_type,raw_rarity,raw_identified,mods_valid,mods_rarity,mods_identified,mods_corrupted,category,effective_rarity,effective_identified,effective_corrupted,eligible\n";
             for (const auto& item : inv.Items) {
                 if (!LooksLikeTablet(item.Path, item.BaseTypeName)) continue;
@@ -151,7 +151,7 @@ class TabletReforgeController {
         try {
             std::filesystem::create_directories(directory / "config");
             std::ofstream out(directory / "config" / "reforge-ui.txt", std::ios::trunc);
-            out << "TabletReforge 0.3.6 UI discovery: " << nodes.size() << " nodes; budget=" << budget << '\n';
+            out << "TabletReforge 0.3.7 UI discovery: " << nodes.size() << " nodes; budget=" << budget << '\n';
             for (size_t index = 0; index < nodes.size(); ++index) {
                 const auto& n = nodes[index];
                 const auto textId = NormalizeIdentifier(n.text);
@@ -326,7 +326,8 @@ public:
         if (!Ready(c)) { Stop("Stopped: bench closed, moved, resized, or another automation started."); return; }
         if (now > deadline_) { Stop("Stopped: no confirmation within 6 seconds. Check the bench before restarting."); return; }
         const int phaseDelayMs = phase_ == Phase::PlaceResult ? kResultPickupPauseMs
-            : (phase_ == Phase::Transfer ? inputTransferDelayMs_ : kActionDelayMs);
+            : ((phase_ == Phase::Transfer || phase_ == Phase::WaitTransfer)
+                ? inputTransferDelayMs_ : kActionDelayMs);
         if (now - actionAt_ < std::chrono::milliseconds(phaseDelayMs)) return;
         const auto snapshot = c->Inventory.ReadSnapshot(1);
         if (!snapshot.Ready || snapshot.ScanStamp == stamp_) return;
