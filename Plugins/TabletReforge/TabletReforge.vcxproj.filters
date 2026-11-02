@@ -11,7 +11,7 @@
     <ClInclude Include="..\..\POEFixer\plugin_sdk\PluginUi.h" />
     <ClCompile Include="src\TabletReforge.cpp" />
     <ClInclude Include="src\TabletReforgeController.h" />
-    <ClInclude Include="src\TabletSelection.h" />
+    <ClInclude Include="src\TabletEligibility.h" />
     <ClInclude Include="src\ReforgeUiDiscovery.h" />
     <ClInclude Include="src\ReforgePlan.h" />
     <ClInclude Include="src\ItemRects.h" />
