@@ -74,7 +74,7 @@ class TabletReforgeController {
             const auto config = directory / "config";
             std::filesystem::create_directories(config);
             std::ofstream out(config / "tablet-scan.txt", std::ios::trunc);
-            out << "TabletReforge 0.3.9 inventory scan\n"
+            out << "TabletReforge 0.4.0 inventory scan\n"
                 << "slot_x,slot_y,path,base_type,raw_rarity,raw_identified,mods_valid,mods_rarity,mods_identified,mods_corrupted,category,effective_rarity,effective_identified,effective_corrupted,eligible\n";
             for (const auto& item : inv.Items) {
                 if (!LooksLikeTablet(item.Path, item.BaseTypeName)) continue;
@@ -270,7 +270,7 @@ class TabletReforgeController {
         deadline_ = actionAt_ + std::chrono::seconds(6);
         c->Inventory.Scan(1);
     }
-    void Preview(const PluginSDK::Context* c, bool all) {
+    void Preview(const PluginSDK::Context* c, bool all, uint8_t rarityMask) {
         const uint64_t area = c->Game.GetAreaChangeCounter();
         if (area != selectionArea_ || selectionWindow_ != c->Game.GetGameWindow()) {
             selectionArea_ = area; selectionWindow_ = c->Game.GetGameWindow();
@@ -279,7 +279,7 @@ class TabletReforgeController {
         const auto snapshot = c->Inventory.ReadSnapshot(1);
         if (!snapshot.Ready || snapshot.AreaChangeCounter != area) return;
         const auto& bag = Bag(c, snapshot.Value, snapshot.AreaChangeCounter, snapshot.ScanStamp);
-        for (const auto& [address, identity] : bag) { (void)address; if (EligibleTablet(identity)) ++displayedCount_; }
+        for (const auto& [address, identity] : bag) { (void)address; if (EligibleTablet(identity, rarityMask)) ++displayedCount_; }
         if (!Foreground(c)) return;
         RECT client{};
         if (!::GetClientRect(c->Game.GetGameWindow(), &client)) return;
@@ -294,7 +294,7 @@ class TabletReforgeController {
             if (!rect) continue;
             const std::string type = ClassifyFromText(item.Path, item.BaseTypeName);
             labels_.push_back({*rect, type});
-            if (all && EligibleTablet(identity)) outlines_.push_back(*rect);
+            if (all && EligibleTablet(identity, rarityMask)) outlines_.push_back(*rect);
         }
     }
 public:
@@ -316,7 +316,7 @@ public:
         requestExpires_ = Clock::now() + std::chrono::seconds(30);
         status_ = "Close the POEFixer menu to start. Keep the empty Reforging Bench open. Esc cancels.";
     }
-    void Tick(const PluginSDK::Context* c, bool all, const std::filesystem::path& directory) {
+    void Tick(const PluginSDK::Context* c, bool all, uint8_t rarityMask, const std::filesystem::path& directory) {
         const auto now = Clock::now();
         if (Busy() && (::GetAsyncKeyState(VK_ESCAPE) & 0x8000)) { Stop("Stopped. Recover any tablets left in the bench before restarting."); return; }
         if (Busy() && (!c->Game.IsInGame() || c->Game.GetAreaChangeCounter() != area_ || c->Game.GetGameWindow() != window_)) {
@@ -325,7 +325,7 @@ public:
         if (pending_ && now > requestExpires_) { Stop("Start cancelled: the menu was not closed within 30 seconds."); return; }
         if (!c->Game.IsInGame()) { outlines_.clear(); labels_.clear(); displayedCount_ = 0; return; }
         if (PumpInput(c)) return;
-        if (!Busy()) Preview(c, all); else { outlines_.clear(); labels_.clear(); }
+        if (!Busy()) Preview(c, all, rarityMask); else { outlines_.clear(); labels_.clear(); }
         if (now >= nextScan_) {
             c->Inventory.Scan(1);
             nextScan_ = now + std::chrono::milliseconds(Running() ? 25 : 100);
@@ -359,7 +359,7 @@ public:
         const auto& bag = Bag(c, inv, snapshot.AreaChangeCounter, snapshot.ScanStamp);
         if (phase_ == Phase::InitialScan) {
             std::vector<ReforgeItem> candidates;
-            for (const auto& [address, identity] : bag) { (void)address; if (EligibleTablet(identity)) candidates.push_back(identity); }
+            for (const auto& [address, identity] : bag) { (void)address; if (EligibleTablet(identity, rarityMask)) candidates.push_back(identity); }
             const size_t eligibleCount = candidates.size();
             batches_ = PlanReforge(std::move(candidates));
             expected_ = bag; batch_ = item_ = 0;
@@ -377,7 +377,7 @@ public:
             const auto target = batches_[batch_][item_];
             const auto item = std::find_if(inv.Items.begin(), inv.Items.end(), [&](const auto& i) { return i.Address == target.address; });
             const auto current = bag.find(target.address);
-            if (item == inv.Items.end() || current == bag.end() || current->second != target || !EligibleTablet(current->second)) { Stop("Stopped: selected tablet is missing or no longer eligible."); return; }
+            if (item == inv.Items.end() || current == bag.end() || current->second != target || !EligibleTablet(current->second, rarityMask)) { Stop("Stopped: selected tablet is missing or no longer eligible."); return; }
             const auto rect = ResolveItemRect(inv, *item, HasItemRects(inv), true, static_cast<float>(width_), static_cast<float>(height_));
             if (!rect || !Click(c, {static_cast<LONG>(rect->x + rect->w / 2), static_cast<LONG>(rect->y + rect->h / 2)}, true)) {
                 Stop("Stopped: input was not sent. Release modifier keys and mouse buttons."); return;

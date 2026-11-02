@@ -9,7 +9,7 @@
 POEFIXER_PLUGIN_INFO(
     "TabletReforge",
     "Tablet Reforge",
-    "0.3.9",
+    "0.4.0",
     "TabletReforge contributors; Omer Faruk ARPA; POEFixer",
     "Reforge identified tablets in matching category and rarity trios, collect results without reusing unidentified tablets, and display tablet types.")
 
@@ -17,6 +17,7 @@ POEFIXER_PLUGIN_INFO(
 class TabletReforgePlugin : public PluginSDK::Plugin {
     TabletHelper::TabletReforgeController controller_;
     bool allTablets_ = true, showTabletTypes_ = true, running_ = false;
+    bool rarityNormal_ = true, rarityMagic_ = true, rarityRare_ = true;
     int executionSpeed_ = 15;
 public:
     const char* GetName() const override { return "Tablet Reforge"; }
@@ -24,6 +25,7 @@ public:
     void OnEnable(bool) override {
         if (!HostCompatible()) return;
         allTablets_ = true; showTabletTypes_ = true; executionSpeed_ = 15;
+        rarityNormal_ = rarityMagic_ = rarityRare_ = true;
         try {
             std::ifstream file(DirectoryPath() / "config" / "settings.json");
             if (file) {
@@ -34,6 +36,12 @@ public:
                     showTabletTypes_ = settings["show_tablet_types"].get<bool>();
                 if (settings.is_object() && settings.contains("execution_speed") && settings["execution_speed"].is_number_integer())
                     executionSpeed_ = std::clamp(settings["execution_speed"].get<int>(), 1, 20);
+                if (settings.is_object() && settings.contains("rarity_normal") && settings["rarity_normal"].is_boolean())
+                    rarityNormal_ = settings["rarity_normal"].get<bool>();
+                if (settings.is_object() && settings.contains("rarity_magic") && settings["rarity_magic"].is_boolean())
+                    rarityMagic_ = settings["rarity_magic"].get<bool>();
+                if (settings.is_object() && settings.contains("rarity_rare") && settings["rarity_rare"].is_boolean())
+                    rarityRare_ = settings["rarity_rare"].get<bool>();
             }
         } catch (...) { ctx()->Log.Warn("TabletReforge: could not read settings; defaults are active."); }
         controller_.Reset(); running_ = true;
@@ -47,7 +55,8 @@ public:
             const auto destination = directory / "settings.json";
             std::ofstream file(temporary, std::ios::binary | std::ios::trunc);
             file << nlohmann::json{{"all_tablets", allTablets_}, {"show_tablet_types", showTabletTypes_},
-                {"execution_speed", executionSpeed_}}.dump(2);
+                {"execution_speed", executionSpeed_}, {"rarity_normal", rarityNormal_},
+                {"rarity_magic", rarityMagic_}, {"rarity_rare", rarityRare_}}.dump(2);
             file.flush();
             if (!file.good()) throw std::runtime_error("Settings write failed");
             file.close();
@@ -63,11 +72,19 @@ public:
             "Unidentified tablets are never used.");
         ImGui::BeginDisabled(controller_.Busy());
         if (ImGui::Checkbox("All tablets in inventory", &allTablets_)) SaveSettings();
+        ImGui::Text("Rarities to reforge");
+        if (ImGui::Checkbox("Normal", &rarityNormal_)) SaveSettings();
+        ImGui::SameLine();
+        if (ImGui::Checkbox("Magic", &rarityMagic_)) SaveSettings();
+        ImGui::SameLine();
+        if (ImGui::Checkbox("Rare", &rarityRare_)) SaveSettings();
         if (ImGui::SliderInt("Tablet transfer speed", &executionSpeed_, 1, 20)) SaveSettings();
         ImGui::TextDisabled("Controls input clicks and confirmation cadence. Result pickup waits 0.7 seconds.");
         if (ImGui::Checkbox("Highlight tablet types", &showTabletTypes_)) SaveSettings();
         ImGui::Text("Eligible tablets: %llu", static_cast<unsigned long long>(controller_.SelectedCount()));
-        ImGui::BeginDisabled(!allTablets_);
+        const uint8_t rarityMask = static_cast<uint8_t>((rarityNormal_ ? 1 : 0) |
+            (rarityMagic_ ? 2 : 0) | (rarityRare_ ? 4 : 0));
+        ImGui::BeginDisabled(!allTablets_ || rarityMask == 0);
         if (ImGui::Button("Start reforging")) {
             const int transferDelayMs = executionSpeed_ <= 10
                 ? 2100 - executionSpeed_ * 200
@@ -85,7 +102,9 @@ public:
     void DrawUI() override {
         if (!running_ || !ctx()->ImGuiContext) return;
         ImGui::SetCurrentContext(static_cast<ImGuiContext*>(ctx()->ImGuiContext));
-        controller_.Tick(ctx(), allTablets_, DirectoryPath());
+        const uint8_t rarityMask = static_cast<uint8_t>((rarityNormal_ ? 1 : 0) |
+            (rarityMagic_ ? 2 : 0) | (rarityRare_ ? 4 : 0));
+        controller_.Tick(ctx(), allTablets_, rarityMask, DirectoryPath());
         if (!ctx()->Game.IsInGame() || !ctx()->Game.IsForeground()) return;
         auto* draw = ImGui::GetBackgroundDrawList();
         for (const auto& r : controller_.Outlines()) {
