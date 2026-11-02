@@ -51,7 +51,7 @@ class TabletReforgeController {
     std::map<uintptr_t, ReforgeItem> expected_;
     std::vector<ReforgeBatch> batches_;
     size_t batch_ = 0, item_ = 0;
-    Clock::time_point requestExpires_{}, actionAt_{}, deadline_{}, nextScan_{};
+    Clock::time_point actionAt_{}, deadline_{}, nextScan_{};
     std::string status_ = "Open an empty Reforging Bench, then press Start reforging.";
     static constexpr int kActionDelayMs = 700;
     int inputTransferDelayMs_ = 700;
@@ -405,7 +405,6 @@ class TabletReforgeController {
     void TickStash(const PluginSDK::Context* c, const std::filesystem::path& directory) {
         if (stashStage_ == StashStage::AwaitBench || stashStage_ == StashStage::AwaitStash ||
             stashStage_ == StashStage::Finished || stashStage_ == StashStage::Idle) return;
-        if (Clock::now() > requestExpires_) { Stop("Stash step cancelled: close the POEFixer menu within 30 seconds."); return; }
         if (!Foreground(c)) return;
         stashInputMode_ = true;
         if (PumpInput(c)) return;
@@ -796,7 +795,6 @@ public:
         all_ = all; inputTransferDelayMs_ = std::clamp(inputTransferDelayMs, 10, 1900);
         inputPulseMs_ = std::clamp(inputPulseMs, 20, 40); pending_ = true;
         area_ = c->Game.GetAreaChangeCounter(); window_ = c->Game.GetGameWindow();
-        requestExpires_ = Clock::now() + std::chrono::seconds(30);
         status_ = "Close the POEFixer menu to start. Keep the empty Reforging Bench open. Esc cancels.";
     }
     void RequestStashCycle(const PluginSDK::Context* c, const std::vector<TabletHelperConfig::TypeConfig>& typeRules,
@@ -820,7 +818,6 @@ public:
         all_ = true; inputTransferDelayMs_ = std::clamp(transferDelayMs, 10, 1900);
         inputPulseMs_ = std::clamp(pulseMs, 20, 40);
         area_ = c->Game.GetAreaChangeCounter(); window_ = c->Game.GetGameWindow();
-        requestExpires_ = Clock::now() + std::chrono::seconds(30);
         status_ = "Keep TABLET+FRAGMENTS open on Tablets. Close the POEFixer menu to scan selected categories.";
     }
     void RequestCycleBench(const PluginSDK::Context* c) {
@@ -840,7 +837,6 @@ public:
         area_ = c->Game.GetAreaChangeCounter(); window_ = c->Game.GetGameWindow();
         stashActionAt_ = Clock::now();
         status_ = "Open TABLET+FRAGMENTS on Tablets, then close the POEFixer menu to return results and continue.";
-        requestExpires_ = Clock::now() + std::chrono::seconds(30);
     }
     void Tick(const PluginSDK::Context* c, bool all, uint8_t rarityMask,
               const std::vector<TabletHelperConfig::TypeConfig>& typeRules,
@@ -850,7 +846,6 @@ public:
         if (Busy() && (!c->Game.IsInGame() || c->Game.GetAreaChangeCounter() != area_ || c->Game.GetGameWindow() != window_)) {
             Stop("Stopped: game window or area changed."); return;
         }
-        if (pending_ && now > requestExpires_) { Stop("Start cancelled: the menu was not closed within 30 seconds."); return; }
         if (!c->Game.IsInGame()) { outlines_.clear(); labels_.clear(); displayedCount_ = 0; return; }
         if (stashCycle_ && stashStage_ != StashStage::Idle && stashStage_ != StashStage::AwaitBench &&
             stashStage_ != StashStage::AwaitStash && stashStage_ != StashStage::Finished) {
