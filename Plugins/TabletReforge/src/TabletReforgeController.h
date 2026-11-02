@@ -619,9 +619,20 @@ class TabletReforgeController {
             status_ = "Opening the detected Reforging Bench..."; return;
         }
         if (stashStage_ == StashStage::WaitBenchOpen) {
-            if (now - stashActionAt_ < std::chrono::milliseconds(500)) return;
-            stashActionAt_ = now;
-            if (!AttachBench(c, directory, false) || !Ready(c)) return;
+            // Give the character time to reach the prop. If the panel did not open,
+            // retry the interaction after a pause instead of clicking rapidly.
+            if (now - stashActionAt_ < std::chrono::milliseconds(1400)) return;
+            if (!AttachBench(c, directory, false) || !Ready(c)) {
+                const auto point = FindBenchScreenPoint(c);
+                if (point && ClickWorldPoint(c, *point)) {
+                    stashActionAt_ = now;
+                    status_ = "Waiting for the Reforging Bench to open; retrying after a short pause...";
+                } else {
+                    stashActionAt_ = now;
+                    status_ = "Waiting for the Reforging Bench to become available...";
+                }
+                return;
+            }
             stashInputMode_ = false; stashStage_ = StashStage::ForgePass;
             pending_ = true; all_ = true; area_ = c->Game.GetAreaChangeCounter();
             window_ = c->Game.GetGameWindow(); status_ = "Bench opened. Starting the reforge pass...";
@@ -653,10 +664,20 @@ class TabletReforgeController {
             }
         }
         if (stashStage_ == StashStage::WaitStashOpen) {
-            if (now - stashActionAt_ < std::chrono::milliseconds(500)) return;
-            stashActionAt_ = now;
+            // Initial interaction can send the character toward the stash. Wait for
+            // that approach, then retry only if POEFixer still reports it closed.
+            if (now - stashActionAt_ < std::chrono::milliseconds(1400)) return;
             const auto tabs = c->Game.EnumerateStashTabs(PluginSDK::StashDomain::Own);
-            if (!tabs.IsOpen()) return;
+            if (!tabs.IsOpen()) {
+                const auto point = FindOwnStashScreenPoint(c);
+                if (point && ClickWorldPoint(c, *point))
+                    status_ = "Waiting for the stash to open; retrying after a short pause...";
+                else
+                    status_ = "Waiting for the stash interaction...";
+                stashActionAt_ = now;
+                return;
+            }
+            stashActionAt_ = now;
             const auto tabletTab = std::find_if(tabs.Tabs.begin(), tabs.Tabs.end(), [](const auto& tab) {
                 return IsTabletStashTabName(tab.Name);
             });
@@ -824,7 +845,7 @@ class TabletReforgeController {
             return;
         }
         if (stashStage_ == StashStage::CheckTabletTooltip) {
-            if (!stashPendingItem_ || bag != stashExpectedBag_ || snapshot.ScanStamp != stashBagStamp_) {
+            if (!stashPendingItem_ || bag != stashExpectedBag_) {
                 Stop("Tablet inventory changed while checking its properties."); return;
             }
             const auto sanctified = ReadHoveredTabletSanctified(c, *stashPendingItem_);
@@ -845,7 +866,12 @@ class TabletReforgeController {
                 Stop("Could not revalidate the inspected Tablet stash item. No item clicked."); return;
             }
             const auto point = TabletStashSlotCenter(*stashTargets_, item->SlotX, item->SlotY);
-            if (!point || !Click(c, *point, true)) { Stop("Could not safely Ctrl-click a stash tablet."); return; }
+            if (!point) { Stop("Could not safely locate the stash tablet."); return; }
+            // Rescans may legitimately advance POEFixer's scan stamp while the
+            // hovered tooltip is being read. Start transfer verification from
+            // the newest unchanged inventory snapshot.
+            stashBagStamp_ = snapshot.ScanStamp;
+            if (!Click(c, *point, true)) { Stop("Could not safely Ctrl-click a stash tablet."); return; }
             stashStage_ = StashStage::WaitPull; stashActionAt_ = now;
             status_ = "Withdrawing selected identified tablets from stash...";
             c->Inventory.Scan(1); return;
@@ -1151,7 +1177,22 @@ public:
         inputPulseMs_ = std::clamp(pulseMs, 20, 40);
         area_ = c->Game.GetAreaChangeCounter(); window_ = c->Game.GetGameWindow();
         c->Overlay.SetEntityScanFlags(PluginSDK::EntityScan::StashObjects);
-        status_ = "Close the POEFixer menu to start. The plugin will open the stash, select Tablets, and run the full cycle.";
+        const HWND gameWindow = c->Game.GetGameWindow();
+        const HWND foreground = ::GetForegroundWindow();
+        DWORD foregroundProcess = 0;
+        if (foreground && foreground != gameWindow)
+            ::GetWindowThreadProcessId(foreground, &foregroundProcess);
+        bool closeRequested = false;
+        if (foreground && foreground != gameWindow && foregroundProcess == ::GetCurrentProcessId()) {
+            INPUT escape[2]{};
+            escape[0].type = INPUT_KEYBOARD; escape[0].ki.wVk = VK_ESCAPE;
+            escape[1].type = INPUT_KEYBOARD; escape[1].ki.wVk = VK_ESCAPE;
+            escape[1].ki.dwFlags = KEYEVENTF_KEYUP;
+            closeRequested = ::SendInput(2, escape, sizeof(INPUT)) == 2;
+        }
+        status_ = closeRequested
+            ? "Closing the POEFixer window, then starting the stash cycle..."
+            : "Starting the stash cycle. The stash will open automatically.";
     }
     void RequestCycleBench(const PluginSDK::Context* c) {
         if (!StashAwaitingBench()) return;
