@@ -1,0 +1,55 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup>
+    <Filter Include="Source">
+      <UniqueIdentifier>{6F0E5C2B-6D7A-4C44-9B1E-3A0D2B7C9E11}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Source\ui">
+      <UniqueIdentifier>{0B7A4E9D-2F1C-4A63-8E5D-7C2B9F1A3D22}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="SDK">
+      <UniqueIdentifier>{9C3D1F7E-5B2A-4E80-A6C4-1D8E3F5B7A33}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="ImGui">
+      <UniqueIdentifier>{4E8B2C6A-1D3F-4B97-9A5E-6F0C8D2E4B44}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="lib">
+      <UniqueIdentifier>{D2A6F8C1-7E4B-4C35-B9D1-2E5A7C3F8D55}</UniqueIdentifier>
+    </Filter>
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="src\TabletHelper.cpp"><Filter>Source</Filter></ClCompile>
+    <ClCompile Include="src\TabletWorker.cpp"><Filter>Source</Filter></ClCompile>
+    <ClCompile Include="src\HighlightRenderer.cpp"><Filter>Source</Filter></ClCompile>
+    <ClCompile Include="src\ui\SettingsUi.cpp"><Filter>Source\ui</Filter></ClCompile>
+    <ClCompile Include="..\..\POEFixer\imgui\imgui.cpp"><Filter>ImGui</Filter></ClCompile>
+    <ClCompile Include="..\..\POEFixer\imgui\imgui_draw.cpp"><Filter>ImGui</Filter></ClCompile>
+    <ClCompile Include="..\..\POEFixer\imgui\imgui_tables.cpp"><Filter>ImGui</Filter></ClCompile>
+    <ClCompile Include="..\..\POEFixer\imgui\imgui_widgets.cpp"><Filter>ImGui</Filter></ClCompile>
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="src\AutoReforge.h"><Filter>Source</Filter></ClInclude>
+    <ClInclude Include="src\ReforgePlan.h"><Filter>Source</Filter></ClInclude>
+    <ClInclude Include="src\HighlightRenderer.h"><Filter>Source</Filter></ClInclude>
+    <ClInclude Include="src\ItemRects.h"><Filter>Source</Filter></ClInclude>
+    <ClInclude Include="src\Settings.h"><Filter>Source</Filter></ClInclude>
+    <ClInclude Include="src\TabletBonusCatalog.h"><Filter>Source</Filter></ClInclude>
+    <ClInclude Include="src\TabletHelperPlugin.h"><Filter>Source</Filter></ClInclude>
+    <ClInclude Include="src\TabletMatch.h"><Filter>Source</Filter></ClInclude>
+    <ClInclude Include="src\TabletRanges.h"><Filter>Source</Filter></ClInclude>
+    <ClInclude Include="src\TabletScanner.h"><Filter>Source</Filter></ClInclude>
+    <ClInclude Include="src\TabletTypes.h"><Filter>Source</Filter></ClInclude>
+    <ClInclude Include="src\TextUtil.h"><Filter>Source</Filter></ClInclude>
+    <ClInclude Include="src\TabletWorker.h"><Filter>Source</Filter></ClInclude>
+    <ClInclude Include="src\lang_en.generated.h"><Filter>Source</Filter></ClInclude>
+    <ClInclude Include="lib\nlohmann\json.hpp"><Filter>lib</Filter></ClInclude>
+    <ClInclude Include="..\..\POEFixer\plugin_sdk\PluginAbi.h"><Filter>SDK</Filter></ClInclude>
+    <ClInclude Include="..\..\POEFixer\plugin_sdk\PluginSDK.h"><Filter>SDK</Filter></ClInclude>
+    <ClInclude Include="..\..\POEFixer\plugin_sdk\PluginUi.h"><Filter>SDK</Filter></ClInclude>
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="README.md" />
+    <None Include="CHANGELOG.md" />
+    <None Include="LICENSE" />
+  </ItemGroup>
+</Project>
