@@ -196,7 +196,7 @@ class TabletReforgeController {
             ReadUi(c, child, index, depth + 1, budget, nodes);
         }
     }
-    bool AttachBench(const PluginSDK::Context* c, const std::filesystem::path& directory) {
+    bool AttachBench(const PluginSDK::Context* c, const std::filesystem::path& directory, bool writeDiagnostic = true) {
         window_ = c->Game.GetGameWindow();
         RECT client{};
         if (!::GetClientRect(window_, &client)) return false;
@@ -207,6 +207,7 @@ class TabletReforgeController {
         // A truncated scan cannot establish that the targets are unambiguous.
         targets_ = budget > 0 ? DiscoverBench(nodes, static_cast<float>(width_), static_cast<float>(height_)) : std::nullopt;
         if (targets_) return true;
+        if (!writeDiagnostic) return false;
         // Record public SDK UI observations for compatibility debugging, without extra menu controls.
         try {
             std::filesystem::create_directories(directory / "config");
@@ -321,7 +322,7 @@ class TabletReforgeController {
         input[1].type = INPUT_KEYBOARD; input[1].ki.wVk = VK_ESCAPE; input[1].ki.dwFlags = KEYEVENTF_KEYUP;
         return ::SendInput(2, input, sizeof(INPUT)) == 2;
     }
-    bool AttachTabletStash(const PluginSDK::Context* c, const std::filesystem::path& directory) {
+    bool AttachTabletStash(const PluginSDK::Context* c, const std::filesystem::path& directory, bool writeDiagnostic = true) {
         window_ = c->Game.GetGameWindow();
         RECT client{};
         if (!window_ || !::GetClientRect(window_, &client)) return false;
@@ -335,6 +336,7 @@ class TabletReforgeController {
         ReadUi(c, c->Ui.GetGameUiRoot(), -1, 0, budget, nodes);
         stashTargets_ = budget > 0 ? DiscoverTabletStash(nodes) : std::nullopt;
         if (stashTargets_) return true;
+        if (!writeDiagnostic) return false;
         try {
             std::filesystem::create_directories(directory / "config");
             std::ofstream out(directory / "tablet-stash-discovery.txt", std::ios::trunc);
@@ -547,13 +549,17 @@ class TabletReforgeController {
             status_ = "Opening the detected Reforging Bench..."; return;
         }
         if (stashStage_ == StashStage::WaitBenchOpen) {
-            if (!AttachBench(c, directory) || !Ready(c)) return;
+            if (now - stashActionAt_ < std::chrono::milliseconds(500)) return;
+            stashActionAt_ = now;
+            if (!AttachBench(c, directory, false) || !Ready(c)) return;
             stashInputMode_ = false; stashStage_ = StashStage::ForgePass;
             pending_ = true; all_ = true; area_ = c->Game.GetAreaChangeCounter();
             window_ = c->Game.GetGameWindow(); status_ = "Bench opened. Starting the reforge pass...";
             return;
         }
         if (stashStage_ == StashStage::CloseBenchForStash) {
+            if (now - stashActionAt_ < std::chrono::milliseconds(500)) return;
+            stashActionAt_ = now;
             if (BenchPanelVisible(c)) {
                 if (!PressEscape(c)) { status_ = "Waiting to close the Reforging Bench safely..."; return; }
                 targets_.reset(); stashStage_ = StashStage::WaitBenchClosed; stashActionAt_ = now; return;
@@ -561,6 +567,8 @@ class TabletReforgeController {
             stashStage_ = StashStage::FindStash;
         }
         if (stashStage_ == StashStage::WaitBenchClosed) {
+            if (now - stashActionAt_ < std::chrono::milliseconds(500)) return;
+            stashActionAt_ = now;
             if (BenchPanelVisible(c)) return;
             targets_.reset(); stashStage_ = StashStage::FindStash; stashActionAt_ = now;
         }
@@ -575,6 +583,8 @@ class TabletReforgeController {
             }
         }
         if (stashStage_ == StashStage::WaitStashOpen) {
+            if (now - stashActionAt_ < std::chrono::milliseconds(500)) return;
+            stashActionAt_ = now;
             const auto tabs = c->Game.EnumerateStashTabs(PluginSDK::StashDomain::Own);
             if (!tabs.IsOpen()) return;
             const auto tabletTab = std::find_if(tabs.Tabs.begin(), tabs.Tabs.end(), [](const auto& tab) {
@@ -586,7 +596,7 @@ class TabletReforgeController {
                     static_cast<LONG>(tabletTab->CenterY())})) stashActionAt_ = now;
                 status_ = "Selecting the Tablet+Fragments stash tab..."; return;
             }
-            if (!AttachTabletStash(c, directory)) return;
+            if (!AttachTabletStash(c, directory, false)) return;
             stashInputMode_ = true; stashTabSelected_ = false; stashDepositInit_ = false;
             stashResumeForDeposit_ = true; stashStage_ = StashStage::NavigateTab;
             stashUiCategory_ = stashUiPage_ = -1; stashActionAt_ = now;
