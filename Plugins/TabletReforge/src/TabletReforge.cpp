@@ -57,13 +57,30 @@ std::string Lower(std::string value) {
     for (char& c : value) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
     return value;
 }
+std::string RuleSummary(const TypeConfig& rule) {
+    if (!rule.enabled) return "Off";
+    const int selected = static_cast<int>(rule.selectedBonusIds.size());
+    const int required = static_cast<int>(rule.requiredBonusIds.size());
+    std::string summary;
+    if (selected == 0) summary = "Every tablet";
+    else if (required > 0 && selected > required)
+        summary = std::to_string(required) + " required, " + std::to_string(selected - required) + " optional";
+    else if (required > 0) summary = std::to_string(required) + " required";
+    else summary = std::to_string(selected) + (selected == 1 ? " bonus" : " bonuses");
+    if (rule.minUsesLeft > 0) summary += ", " + std::to_string(rule.minUsesLeft) + "+ uses";
+    int ranges = 0;
+    for (const auto& entry : rule.valueFilters)
+        if (entry.second.min != 0 || entry.second.max != 0) ++ranges;
+    if (ranges > 0) summary += ", " + std::to_string(ranges) + (ranges == 1 ? " roll range" : " roll ranges");
+    return summary;
+}
 } // namespace
 
 
 POEFIXER_PLUGIN_INFO(
     "TabletReforge",
     "Tablet Reforge",
-    "0.5.0",
+    "0.5.1",
     "TabletReforge contributors; Omer Faruk ARPA; POEFixer",
     "Reforge identified tablets in matching category and rarity trios, collect results without reusing unidentified tablets, and display tablet types.")
 
@@ -336,18 +353,42 @@ public:
         if (ImGui::SliderInt("Tablet transfer speed", &executionSpeed_, 1, 20)) SaveSettings();
         ImGui::TextDisabled("Highlights: Normal gray, Magic blue, Rare yellow. Result pickup waits 0.7 seconds.");
         ImGui::Separator();
-        ImGui::TextUnformatted("Tablet types to process");
-        for (auto& rule : profile.types) {
-            if (rule.key == TabletHelper::TypeKeys::Global) continue;
-            ImGui::PushID(rule.key.c_str());
-            if (ImGui::Checkbox((std::string("Process ") + TypeLabel(rule.key)).c_str(), &rule.enabled)) SaveSettings();
-            ImGui::SameLine();
-            const bool open = editingType_ == rule.key;
-            if (ImGui::Button(open ? "Close Edit" : "Edit")) {
-                editingType_ = open ? std::string() : rule.key;
-                bonusSearch_[0] = '\0';
+        ImGui::TextUnformatted("Tablet types");
+        const float editWidth = 82.0f;
+        if (ImGui::BeginTable("TabletTypeRules", 5,
+            ImGuiTableFlags_BordersInnerH | ImGuiTableFlags_RowBg | ImGuiTableFlags_SizingStretchProp)) {
+            ImGui::TableSetupColumn("##enabled", ImGuiTableColumnFlags_WidthFixed, ImGui::GetFrameHeight() + 8.0f);
+            ImGui::TableSetupColumn("##typeColour", ImGuiTableColumnFlags_WidthFixed, ImGui::GetFrameHeight() + 4.0f);
+            ImGui::TableSetupColumn("##typeName", ImGuiTableColumnFlags_WidthFixed, 150.0f);
+            ImGui::TableSetupColumn("##ruleSummary", ImGuiTableColumnFlags_WidthStretch);
+            ImGui::TableSetupColumn("##edit", ImGuiTableColumnFlags_WidthFixed, editWidth);
+            for (auto& rule : profile.types) {
+                if (rule.key == TabletHelper::TypeKeys::Global) continue;
+                ImGui::PushID(rule.key.c_str());
+                ImGui::TableNextRow();
+                ImGui::TableNextColumn();
+                if (ImGui::Checkbox("##enabled", &rule.enabled)) SaveSettings();
+                ImGui::TableNextColumn();
+                ImGui::ColorButton("##typeColour", ImVec4(rule.color[0], rule.color[1], rule.color[2], 1.0f),
+                    ImGuiColorEditFlags_NoTooltip | ImGuiColorEditFlags_NoDragDrop | ImGuiColorEditFlags_NoBorder,
+                    ImVec2(ImGui::GetFrameHeight() * 0.78f, ImGui::GetFrameHeight() * 0.78f));
+                ImGui::TableNextColumn();
+                ImGui::BeginDisabled(!rule.enabled);
+                ImGui::AlignTextToFramePadding();
+                ImGui::TextUnformatted(TypeLabel(rule.key));
+                ImGui::TableNextColumn();
+                ImGui::AlignTextToFramePadding();
+                ImGui::TextDisabled("%s", RuleSummary(rule).c_str());
+                ImGui::EndDisabled();
+                ImGui::TableNextColumn();
+                const bool open = editingType_ == rule.key;
+                if (ImGui::Button(open ? "Close" : "Edit", ImVec2(editWidth, 0.0f))) {
+                    editingType_ = open ? std::string() : rule.key;
+                    bonusSearch_[0] = '\0';
+                }
+                ImGui::PopID();
             }
-            ImGui::PopID();
+            ImGui::EndTable();
         }
         auto editing = std::find_if(profile.types.begin(), profile.types.end(), [&](const auto& rule) {
             return rule.key == editingType_;
