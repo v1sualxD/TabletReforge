@@ -14,7 +14,7 @@ struct ReforgeItem {
     std::string path;
     std::string baseType;
     int rarity = 0, level = 0, x = 0, y = 0;
-    bool identified = false, corrupted = false;
+    bool identified = false, corrupted = false, sanctified = false;
     bool operator==(const ReforgeItem&) const = default;
 };
 using ReforgeBatch = std::array<ReforgeItem, 3>;
@@ -33,7 +33,7 @@ inline std::vector<ReforgeBatch> PlanReforge(std::vector<ReforgeItem> items) {
     std::map<std::pair<std::string, int>, std::vector<ReforgeItem>> groups;
     std::set<uintptr_t> seen;
     for (const auto& item : items) {
-        if (!item.address || !seen.insert(item.address).second || item.corrupted ||
+        if (!item.address || !seen.insert(item.address).second || item.corrupted || item.sanctified ||
             !item.identified || item.rarity < 1 || item.rarity > 2 ||
             !LooksLikeTablet(item.path, item.baseType)) continue;
         const std::string category = TabletCategory(item);
