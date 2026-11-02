@@ -8,15 +8,6 @@ Select categories, rarities, minimum uses, and keep-mod filters, then click the 
 
 Normal, unidentified, corrupted, and below-threshold tablets are excluded. Matching keep-mod tablets stay in the stash. The transfer-speed setting is retained, with action and pickup delays about 1.3x faster.
 
-## Stash cycle
-
-1. Click **Start automatic cycle** and close the POEFixer menu; the plugin opens your own stash and selects the Tablet/ Tablets tab.
-2. It scans selected tablet categories and all six pages in each, withdrawing eligible identified, non-corrupted Magic or Rare tablets that satisfy minimum uses and keep filters.
-3. It closes the stash, detects the movable bench by its live world position, opens it, and reforges compatible groups of three.
-4. It reopens the stash, returns results and leftovers, then repeats until no compatible trio remains. Press **Esc** to cancel.
-
-The inventory needs free space for withdrawals and results. If the plugin cannot find one visible, targetable bench match, it waits without clicking.
-
 ## Controls and safety
 
 - Category order: Irradiated, Ritual, Expedition, Delirium, Breach, Abyss, Temple, Overseer. The ninth stash icon is ignored.
