@@ -18,6 +18,8 @@ class TabletReforgeController {
     std::vector<ScreenRect> outlines_;
     std::vector<TabletLabel> labels_;
     size_t displayedCount_ = 0;
+    uint64_t identityCacheArea_ = ~0ull, identityCacheStamp_ = 0;
+    std::map<uintptr_t, ReforgeItem> identityCache_;
     bool pending_ = false, all_ = false;
     uint64_t selectionArea_ = ~0ull, area_ = 0, stamp_ = 0;
     HWND selectionWindow_ = nullptr, window_ = nullptr;
@@ -36,27 +38,52 @@ class TabletReforgeController {
     static constexpr int kInputPulseMs = 40;
 
 
-    static ReforgeItem Identity(const PluginSDK::InventoryItem& i) {
-        return {i.Address, i.Path, i.BaseTypeName, i.Rarity, i.ItemLevel, i.SlotX, i.SlotY, i.IsIdentified, i.IsCorrupted};
+    static ReforgeItem Identity(const PluginSDK::Context* c, const PluginSDK::InventoryItem& i) {
+        ReforgeItem result{i.Address, i.Path, i.BaseTypeName, i.Rarity, i.ItemLevel, i.SlotX, i.SlotY,
+            i.IsIdentified, i.IsCorrupted};
+        // Some POEFixer hosts leave rarity/identification unset in the inventory snapshot.
+        // The item-mod summary is the authoritative fallback when it is available.
+        if (c && i.Address) {
+            const auto mods = c->Inventory.ReadItemMods(i.Address);
+            if (mods.Valid) {
+                result.rarity = mods.Rarity;
+                result.level = mods.ItemLevel;
+                result.identified = mods.IsIdentified;
+                result.corrupted = mods.IsCorrupted;
+            }
+        }
+        return result;
     }
-    static std::map<uintptr_t, ReforgeItem> Bag(const PluginSDK::Inventory& inv) {
-        std::map<uintptr_t, ReforgeItem> bag;
-        for (const auto& item : inv.Items) if (item.Address) bag.emplace(item.Address, Identity(item));
-        return bag;
+    const std::map<uintptr_t, ReforgeItem>& Bag(const PluginSDK::Context* c,
+        const PluginSDK::Inventory& inv, uint64_t area, uint64_t stamp) {
+        if (identityCacheArea_ != area || identityCacheStamp_ != stamp) {
+            identityCache_.clear();
+            for (const auto& item : inv.Items) {
+                if (item.Address) identityCache_.emplace(item.Address, Identity(c, item));
+            }
+            identityCacheArea_ = area;
+            identityCacheStamp_ = stamp;
+        }
+        return identityCache_;
     }
-    static void WriteScanDiagnostic(const PluginSDK::Inventory& inv, const std::filesystem::path& directory) {
+    static void WriteScanDiagnostic(const PluginSDK::Context* c, const PluginSDK::Inventory& inv,
+        const std::map<uintptr_t, ReforgeItem>& bag, const std::filesystem::path& directory) {
         try {
             const auto config = directory / "config";
             std::filesystem::create_directories(config);
             std::ofstream out(config / "tablet-scan.txt", std::ios::trunc);
-            out << "TabletReforge 0.3.2 inventory scan\n"
-                << "slot_x,slot_y,path,base_type,category,rarity,identified,corrupted,eligible\n";
+            out << "TabletReforge 0.3.3 inventory scan\n"
+                << "slot_x,slot_y,path,base_type,raw_rarity,raw_identified,mods_valid,mods_rarity,mods_identified,mods_corrupted,category,effective_rarity,effective_identified,effective_corrupted,eligible\n";
             for (const auto& item : inv.Items) {
-                const auto identity = Identity(item);
                 if (!LooksLikeTablet(item.Path, item.BaseTypeName)) continue;
+                const auto found = bag.find(item.Address);
+                const auto identity = found == bag.end() ? Identity(c, item) : found->second;
+                const auto mods = c ? c->Inventory.ReadItemMods(item.Address) : PluginSDK::ItemMods{};
                 out << item.SlotX << ',' << item.SlotY << ',' << item.Path << ',' << item.BaseTypeName << ','
-                    << TabletCategory(identity) << ',' << item.Rarity << ',' << item.IsIdentified << ','
-                    << item.IsCorrupted << ',' << EligibleTablet(identity) << '\n';
+                    << item.Rarity << ',' << item.IsIdentified << ',' << mods.Valid << ',' << mods.Rarity << ','
+                    << mods.IsIdentified << ',' << mods.IsCorrupted << ',' << TabletCategory(identity) << ','
+                    << identity.rarity << ',' << identity.identified << ',' << identity.corrupted << ','
+                    << EligibleTablet(identity) << '\n';
             }
         } catch (...) {}
     }
@@ -99,7 +126,7 @@ class TabletReforgeController {
         try {
             std::filesystem::create_directories(directory / "config");
             std::ofstream out(directory / "config" / "reforge-ui.txt", std::ios::trunc);
-            out << "TabletReforge 0.3.2 UI discovery: " << nodes.size() << " nodes; budget=" << budget << '\n';
+            out << "TabletReforge 0.3.3 UI discovery: " << nodes.size() << " nodes; budget=" << budget << '\n';
             for (size_t index = 0; index < nodes.size(); ++index) {
                 const auto& n = nodes[index];
                 const auto textId = NormalizeIdentifier(n.text);
@@ -208,7 +235,7 @@ class TabletReforgeController {
         outlines_.clear(); labels_.clear(); displayedCount_ = 0;
         const auto snapshot = c->Inventory.ReadSnapshot(1);
         if (!snapshot.Ready || snapshot.AreaChangeCounter != area) return;
-        const auto bag = Bag(snapshot.Value);
+        const auto& bag = Bag(c, snapshot.Value, snapshot.AreaChangeCounter, snapshot.ScanStamp);
         for (const auto& [address, identity] : bag) { (void)address; if (EligibleTablet(identity)) ++displayedCount_; }
         if (!Foreground(c)) return;
         RECT client{};
@@ -216,7 +243,8 @@ class TabletReforgeController {
         const auto& inv = snapshot.Value;
         if (!GridDrawn(inv, static_cast<float>(client.right), static_cast<float>(client.bottom))) return;
         for (const auto& item : inv.Items) {
-            const auto identity = Identity(item);
+            const auto found = bag.find(item.Address);
+            const auto identity = found == bag.end() ? Identity(c, item) : found->second;
             if (!LooksLikeTablet(item.Path, item.BaseTypeName)) continue;
             const auto rect = ResolveItemRect(inv, item, HasItemRects(inv), true,
                 static_cast<float>(client.right), static_cast<float>(client.bottom));
@@ -278,7 +306,7 @@ public:
         if (inv.TotalBoxesX != 12 || inv.TotalBoxesY != 5 || !GridDrawn(inv, static_cast<float>(width_), static_cast<float>(height_))) {
             Stop("Stopped: inventory grid is not visible."); return;
         }
-        const auto bag = Bag(inv);
+        const auto& bag = Bag(c, inv, snapshot.AreaChangeCounter, snapshot.ScanStamp);
         if (phase_ == Phase::InitialScan) {
             std::vector<ReforgeItem> candidates;
             for (const auto& [address, identity] : bag) { (void)address; if (EligibleTablet(identity)) candidates.push_back(identity); }
@@ -286,7 +314,7 @@ public:
             batches_ = PlanReforge(std::move(candidates));
             expected_ = bag; batch_ = item_ = 0;
             if (batches_.empty()) {
-                WriteScanDiagnostic(inv, directory);
+                WriteScanDiagnostic(c, inv, bag, directory);
                 const auto message = "No compatible trio found among " + std::to_string(eligibleCount) +
                     " eligible tablets. Requires three of the same category and rarity. See config/tablet-scan.txt.";
                 Stop(message.c_str());
@@ -297,8 +325,9 @@ public:
         if (phase_ == Phase::Transfer) {
             if (bag != expected_) { Stop("Stopped: inventory changed outside the sequence."); return; }
             const auto target = batches_[batch_][item_];
-            const auto item = std::find_if(inv.Items.begin(), inv.Items.end(), [&](const auto& i) { return Identity(i) == target; });
-            if (item == inv.Items.end() || !EligibleTablet(Identity(*item))) { Stop("Stopped: selected tablet is missing or no longer eligible."); return; }
+            const auto item = std::find_if(inv.Items.begin(), inv.Items.end(), [&](const auto& i) { return i.Address == target.address; });
+            const auto current = bag.find(target.address);
+            if (item == inv.Items.end() || current == bag.end() || current->second != target || !EligibleTablet(current->second)) { Stop("Stopped: selected tablet is missing or no longer eligible."); return; }
             const auto rect = ResolveItemRect(inv, *item, HasItemRects(inv), true, static_cast<float>(width_), static_cast<float>(height_));
             if (!rect || !Click(c, {static_cast<LONG>(rect->x + rect->w / 2), static_cast<LONG>(rect->y + rect->h / 2)}, true)) {
                 Stop("Stopped: input was not sent. Release modifier keys and mouse buttons."); return;
