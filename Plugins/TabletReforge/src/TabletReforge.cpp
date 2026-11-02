@@ -245,16 +245,11 @@ public:
         }
         ImGui::EndDisabled();
 
-        if (controller_.StashAwaitingBench() && ImGui::Button("Continue with Reforging Bench"))
-            controller_.RequestCycleBench(ctx());
-        if (controller_.StashAwaitingStash() && ImGui::Button("Continue at Tablet stash"))
-            controller_.RequestCycleStash(ctx());
-
         ImGui::BeginChild("TabletReforgeStatus", ImVec2(0, 64), true);
         ImGui::TextUnformatted("Status");
         ImGui::TextWrapped("%s", controller_.Status().c_str());
         ImGui::EndChild();
-        ImGui::TextDisabled("Open an empty Reforging Bench for inventory mode. For stash mode, open TABLET+FRAGMENTS > Tablets and switch panels when prompted. Press Esc to stop.");
+        ImGui::TextDisabled("Stash mode: open TABLET+FRAGMENTS > Tablets, then Start stash cycle handles panel switching automatically. Press Esc to stop.");
 
         ImGui::Separator();
         if (ImGui::CollapsingHeader("Diagnostics")) {
