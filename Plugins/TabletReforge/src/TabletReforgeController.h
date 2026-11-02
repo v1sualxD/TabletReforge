@@ -481,7 +481,10 @@ class TabletReforgeController {
         const auto expectedBase = NormalizeIdentifier(item.baseType);
         if (expectedBase.empty()) return std::nullopt;
         std::vector<BenchNode> nodes;
-        int budget = 3000;
+        // A visible stash exposes thousands of hidden UI nodes as well as its 700+ visible nodes.
+        // Use the same conservative budget as stash discovery so hidden nodes do not exhaust
+        // the tooltip scan before the hovered item title can be checked.
+        int budget = 8000;
         ReadUi(c, c->Ui.GetGameUiRoot(), -1, 0, budget, nodes);
         if (budget <= 0) return std::nullopt;
         bool tooltipTitleFound = false;
