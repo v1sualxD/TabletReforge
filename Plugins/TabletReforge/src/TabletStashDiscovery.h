@@ -44,10 +44,10 @@ inline TabletStashPageMatch MatchVisibleStashPage(const TabletStashTargets& targ
     for (const auto& inventory : inventories) {
         if (inventory.TotalBoxesX != 12 || inventory.TotalBoxesY != 8 || !inventory.Grid.Valid)
             continue;
-        const auto near = [](float a, float b) { return std::abs(a - b) <= 2.5f; };
-        if (!near(inventory.Grid.GridScreenX, targets.grid.x) ||
-            !near(inventory.Grid.GridScreenY, targets.grid.y) ||
-            !near(inventory.Grid.CellSize, targets.cellSize)) continue;
+        const auto withinTolerance = [](float a, float b) { return std::abs(a - b) <= 2.5f; };
+        if (!withinTolerance(inventory.Grid.GridScreenX, targets.grid.x) ||
+            !withinTolerance(inventory.Grid.GridScreenY, targets.grid.y) ||
+            !withinTolerance(inventory.Grid.CellSize, targets.cellSize)) continue;
         if (match) return {TabletStashPageMatchState::Ambiguous, {}};
         match = inventory;
     }
