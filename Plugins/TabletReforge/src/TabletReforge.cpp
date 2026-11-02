@@ -144,11 +144,10 @@ public:
         ImGui::PushID("TabletReforge");
 
         ImGui::TextUnformatted("Tablet Reforge");
-        ImGui::TextDisabled("Select what to process, then choose an automation action.");
+        ImGui::TextDisabled("Choose categories and filters, then start the full stash-to-bench cycle.");
         ImGui::Separator();
 
         ImGui::BeginDisabled(controller_.Busy() || controller_.StashCycleActive());
-        if (ImGui::Checkbox("All tablets in inventory", &allTablets_)) SaveSettings();
         if (ImGui::SliderInt("Transfer speed", &executionSpeed_, 1, 20)) SaveSettings();
         if (ImGui::SliderInt("Minimum uses to process", &minimumUses_, 1, 10)) {
             for (auto& type : types_)
@@ -225,18 +224,8 @@ public:
 
         ImGui::Separator();
         ImGui::Text("Tablets to reforge: %llu", static_cast<unsigned long long>(controller_.SelectedCount()));
-        ImGui::BeginDisabled(controller_.StashCycleActive());
-        ImGui::BeginDisabled(!allTablets_ || RarityMask() == 0);
-        if (ImGui::Button("Start reforging", ImVec2(190, 32))) {
-            const int transferDelayMs = executionSpeed_ <= 10
-                ? 2100 - executionSpeed_ * 200
-                : 100 - (executionSpeed_ - 10) * 9;
-            const int inputPulseMs = executionSpeed_ <= 10 ? 40 : 40 - (executionSpeed_ - 10) * 2;
-            controller_.RequestStart(ctx(), allTablets_, transferDelayMs, inputPulseMs);
-        }
-        ImGui::EndDisabled();
-        ImGui::SameLine();
-        if (ImGui::Button("Start stash cycle", ImVec2(190, 32))) {
+        ImGui::BeginDisabled(controller_.Busy() || RarityMask() == 0);
+        if (ImGui::Button("Start automatic cycle", ImVec2(220, 32))) {
             const int transferDelayMs = executionSpeed_ <= 10
                 ? 2100 - executionSpeed_ * 200
                 : 100 - (executionSpeed_ - 10) * 9;
@@ -249,7 +238,7 @@ public:
         ImGui::TextUnformatted("Status");
         ImGui::TextWrapped("%s", controller_.Status().c_str());
         ImGui::EndChild();
-        ImGui::TextDisabled("Stash mode: open TABLET+FRAGMENTS > Tablets, then Start stash cycle handles panel switching automatically. Press Esc to stop.");
+        ImGui::TextDisabled("Keep your character in the hideout. The single button opens your stash, selects Tablets, reforges, and returns results. Press Esc to stop.");
 
         ImGui::Separator();
         if (ImGui::CollapsingHeader("Diagnostics")) {
@@ -265,7 +254,7 @@ public:
     void DrawUI() override {
         if (!running_ || !ctx()->ImGuiContext) return;
         ImGui::SetCurrentContext(static_cast<ImGuiContext*>(ctx()->ImGuiContext));
-        controller_.Tick(ctx(), allTablets_, RarityMask(), types_, DirectoryPath());
+        controller_.Tick(ctx(), true, RarityMask(), types_, DirectoryPath());
         if (!ctx()->Game.IsInGame() || !ctx()->Game.IsForeground()) return;
         auto* draw = ImGui::GetBackgroundDrawList();
         auto rarityColor = [](int rarity) -> ImU32 {
