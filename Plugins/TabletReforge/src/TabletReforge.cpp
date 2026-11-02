@@ -38,7 +38,7 @@ uint8_t MakeRarityMask(bool magic, bool rare) {
 POEFIXER_PLUGIN_INFO(
     "TabletReforge",
     "Tablet Reforge",
-    "0.6.5",
+    "0.6.6",
     "TabletReforge contributors; Omer Faruk ARPA; POEFixer",
     "Reforge identified tablets by rarity in matching category trios, collect results without reusing unidentified tablets, and display tablet types.")
 
@@ -249,16 +249,20 @@ public:
             controller_.RequestCycleBench(ctx());
         if (controller_.StashAwaitingStash() && ImGui::Button("Continue at Tablet stash"))
             controller_.RequestCycleStash(ctx());
-        if (ImGui::Button("Capture Tablet stash diagnostics"))
-            controller_.CaptureStashDiagnostics(ctx(), DirectoryPath());
-        ImGui::SameLine();
-        ImGui::TextDisabled("Open Tablet stash first.");
 
         ImGui::BeginChild("TabletReforgeStatus", ImVec2(0, 64), true);
         ImGui::TextUnformatted("Status");
         ImGui::TextWrapped("%s", controller_.Status().c_str());
         ImGui::EndChild();
         ImGui::TextDisabled("Open an empty Reforging Bench for inventory mode. For stash mode, open TABLET+FRAGMENTS > Tablets and switch panels when prompted. Press Esc to stop.");
+
+        ImGui::Separator();
+        if (ImGui::CollapsingHeader("Diagnostics")) {
+            ImGui::TextWrapped("Capture a report after an error, with the relevant game panel open. It records the current status, inventory, stash controls, visible UI and world entity paths.");
+            if (ImGui::Button("Capture diagnostic report", ImVec2(210, 30)))
+                controller_.CaptureStashDiagnostics(ctx(), DirectoryPath());
+            ImGui::TextDisabled("Saved to config/tablet-reforge-diagnostics.txt in the plugin folder.");
+        }
 
         ImGui::PopID();
     }
