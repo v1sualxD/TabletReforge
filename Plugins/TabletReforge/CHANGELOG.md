@@ -2,7 +2,10 @@
 
 ## TabletReforge 0.6.8
 
-- Diagnostics now include each world's entity metadata path, targetability, and state so the placed Reforging Bench can be identified dynamically.
+- Added a one-button stash cycle that closes and reopens the stash and reforging panels automatically.
+- Locates the movable Reforging Bench by its live metadata path, targetable state, and projected on-screen position instead of fixed coordinates.
+- Automatically returns results and leftovers to the stash, then resumes scanning selected categories and pages.
+- Diagnostics now include each world's entity metadata path, targetability, and state to help diagnose missed bench detection.
 
 
 ## TabletReforge 0.6.7
