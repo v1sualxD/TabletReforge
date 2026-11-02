@@ -5,12 +5,14 @@
 #include <fstream>
 #include <stdexcept>
 
+
 POEFIXER_PLUGIN_INFO(
     "TabletReforge",
     "Tablet Reforge",
-    "0.3.1",
+    "0.3.2",
     "TabletReforge contributors; Omer Faruk ARPA; POEFixer",
-    "Reforge matching inventory tablets in batches of three, collect unidentified results, and display tablet types.")
+    "Reforge identified tablets in matching category and rarity trios, collect results without reusing unidentified tablets, and display tablet types.")
+
 
 class TabletReforgePlugin : public PluginSDK::Plugin {
     TabletHelper::TabletReforgeController controller_;
@@ -57,7 +59,7 @@ public:
         if (!running_ || !ctx()->ImGuiContext) return;
         ImGui::SetCurrentContext(static_cast<ImGuiContext*>(ctx()->ImGuiContext));
         ImGui::PushID("TabletReforge");
-        ImGui::TextWrapped("Reforge identified inventory tablets in matching groups of three. "
+        ImGui::TextWrapped("Reforge identified inventory tablets in groups of three from the same visible category and rarity. "
             "Unidentified tablets are never used.");
         ImGui::BeginDisabled(controller_.Busy());
         if (ImGui::Checkbox("All tablets in inventory", &allTablets_)) SaveSettings();
@@ -70,7 +72,7 @@ public:
         ImGui::EndDisabled();
         ImGui::EndDisabled();
         ImGui::TextWrapped("Open an empty Reforging Bench first. After starting, close this menu. "
-            "Only trios of the same base and rarity are used. Unidentified results are never selected. Press Esc to stop.");
+            "Only trios of the same tablet category and rarity are used. Unidentified results are never selected. Press Esc to stop.");
         ImGui::TextWrapped("%s", controller_.Status().c_str());
         ImGui::PopID();
     }
