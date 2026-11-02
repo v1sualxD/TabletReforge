@@ -249,8 +249,26 @@ class TabletReforgeController {
                 x >= client.right - 1 || y >= client.bottom - 1) continue;
             matches.push_back({static_cast<LONG>(std::lround(x)), static_cast<LONG>(std::lround(y))});
         }
-        if (matches.size() != 1) return std::nullopt;
-        return matches.front();
+        if (matches.size() == 1) return matches.front();
+        if (!matches.empty()) return std::nullopt;
+
+        // POEFixer also exposes the visible world-name label in its UI tree.
+        // Use that live label as a fallback when the host omits the prop from
+        // the targetable entity snapshot.
+        std::vector<BenchNode> nodes;
+        int budget = 2000;
+        ReadUi(c, c->Ui.GetGameUiRoot(), -1, 0, budget, nodes);
+        std::vector<POINT> labelMatches;
+        for (const auto& node : nodes) {
+            if (NormalizeIdentifier(node.name).find("reforgingbench") == std::string::npos ||
+                node.w < 30 || node.h < 8 || !std::isfinite(node.x) || !std::isfinite(node.y) ||
+                !std::isfinite(node.w) || !std::isfinite(node.h) || node.x < 1 || node.y < 1 ||
+                node.x + node.w >= client.right - 1 || node.y + node.h >= client.bottom - 1) continue;
+            labelMatches.push_back({static_cast<LONG>(std::lround(node.CenterX())),
+                static_cast<LONG>(std::lround(node.CenterY()))});
+        }
+        if (labelMatches.size() != 1) return std::nullopt;
+        return labelMatches.front();
     }
     std::optional<POINT> FindOwnStashScreenPoint(const PluginSDK::Context* c) {
         if (!c || !Foreground(c)) return std::nullopt;
