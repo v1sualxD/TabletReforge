@@ -1,4 +1,4 @@
-<?xml version="1.0" encoding="utf-8"?>
+﻿<?xml version="1.0" encoding="utf-8"?>
 <Project DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <ItemGroup Label="ProjectConfigurations">
     <ProjectConfiguration Include="Release|x64">
@@ -84,10 +84,6 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
-    <ClCompile Include="src\TabletHelper.cpp" />
-    <ClCompile Include="src\TabletWorker.cpp" />
-    <ClCompile Include="src\HighlightRenderer.cpp" />
-    <ClCompile Include="src\ui\SettingsUi.cpp" />
     <ClCompile Include="..\..\POEFixer\imgui\imgui.cpp">
       <WarningLevel>Level3</WarningLevel>
     </ClCompile>
@@ -102,31 +98,23 @@
     </ClCompile>
   </ItemGroup>
   <ItemGroup>
-    <ClInclude Include="src\AutoReforge.h" />
-    <ClInclude Include="src\ReforgePlan.h" />
-    <ClInclude Include="src\HighlightRenderer.h" />
-    <ClInclude Include="src\ItemRects.h" />
-    <ClInclude Include="src\Settings.h" />
-    <ClInclude Include="src\TabletBonusCatalog.h" />
-    <ClInclude Include="src\TabletHelperPlugin.h" />
-    <ClInclude Include="src\TabletMatch.h" />
-    <ClInclude Include="src\TabletRanges.h" />
-    <ClInclude Include="src\TabletScanner.h" />
-    <ClInclude Include="src\TabletTypes.h" />
-    <ClInclude Include="src\TextUtil.h" />
-    <ClInclude Include="src\TabletWorker.h" />
-    <ClInclude Include="src\lang_en.generated.h" />
     <ClInclude Include="lib\nlohmann\json.hpp" />
     <ClInclude Include="..\..\POEFixer\plugin_sdk\PluginAbi.h" />
     <ClInclude Include="..\..\POEFixer\plugin_sdk\PluginSDK.h" />
     <ClInclude Include="..\..\POEFixer\plugin_sdk\PluginUi.h" />
   </ItemGroup>
   <ItemGroup>
-    <None Include="README.md" />
-    <None Include="CHANGELOG.md" />
-    <None Include="LICENSE" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">
   </ImportGroup>
+  <ItemGroup>
+    <ClCompile Include="src\TabletReforge.cpp" />
+    <ClInclude Include="src\TabletReforgeController.h" />
+    <ClInclude Include="src\TabletSelection.h" />
+    <ClInclude Include="src\ReforgeUiDiscovery.h" />
+    <ClInclude Include="src\ReforgePlan.h" />
+    <ClInclude Include="src\ItemRects.h" />
+    <ClInclude Include="src\TabletTypes.h" />
+  </ItemGroup>
 </Project>
