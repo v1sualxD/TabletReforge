@@ -430,7 +430,10 @@ class TabletReforgeController {
             stashStage_ == StashStage::NavigatePage || stashStage_ == StashStage::ReadPage ||
             stashStage_ == StashStage::Pull || stashStage_ == StashStage::WaitPull ||
             stashStage_ == StashStage::Deposit || stashStage_ == StashStage::WaitDeposit) {
-            if (!AttachTabletStash(c, directory)) {
+            // Discover the stash UI once per user handoff. Walking thousands of UI nodes
+            // on every 250 ms state-machine tick can stall POEFixer's render thread.
+            // The cached tablet-tab anchor is still validated before every input event.
+            if (!stashTargets_ && !AttachTabletStash(c, directory)) {
                 Stop("Tablet stash controls changed or could not be identified. No further clicks sent."); return;
             }
         }
