@@ -53,9 +53,14 @@ class TabletReforgeController {
     size_t batch_ = 0, item_ = 0;
     Clock::time_point actionAt_{}, deadline_{}, nextScan_{};
     std::string status_ = "Open an empty Reforging Bench, then press Start reforging.";
-    static constexpr int kActionDelayMs = 700;
-    int inputTransferDelayMs_ = 700;
-    static constexpr int kResultPickupPauseMs = 700;
+    // Reduce wait intervals by about 1.3x while preserving the click pulse duration.
+    static int FasterTransferDelayMs(int delayMs) {
+        const int bounded = std::clamp(delayMs, 10, 1900);
+        return std::clamp((bounded * 10 + 6) / 13, 10, 1900);
+    }
+    static constexpr int kActionDelayMs = 540;
+    int inputTransferDelayMs_ = 540;
+    static constexpr int kResultPickupPauseMs = 540;
     enum class InputPhase { Idle, MoveAndModifier, ButtonDown, ButtonUp, ModifierUp };
     InputPhase inputPhase_ = InputPhase::Idle;
     bool ownedCtrl_ = false, ownedButton_ = false;
@@ -425,7 +430,7 @@ class TabletReforgeController {
             stashTabSelected_ = false; stashUiCategory_ = stashUiPage_ = -1;
             stashStage_ = StashStage::NavigateTab; stashActionAt_ = now;
         }
-        if (now - stashActionAt_ < std::chrono::milliseconds(250)) return;
+        if (now - stashActionAt_ < std::chrono::milliseconds(190)) return;
 
         if (stashStage_ == StashStage::NavigateTab || stashStage_ == StashStage::NavigateCategory ||
             stashStage_ == StashStage::NavigatePage || stashStage_ == StashStage::ReadPage ||
@@ -792,7 +797,7 @@ public:
     void RequestStart(const PluginSDK::Context* c, bool all, int inputTransferDelayMs, int inputPulseMs) {
         if (Busy()) return;
         if (!all) { status_ = "Enable All tablets in inventory before starting."; return; }
-        all_ = all; inputTransferDelayMs_ = std::clamp(inputTransferDelayMs, 10, 1900);
+        all_ = all; inputTransferDelayMs_ = FasterTransferDelayMs(inputTransferDelayMs);
         inputPulseMs_ = std::clamp(inputPulseMs, 20, 40); pending_ = true;
         area_ = c->Game.GetAreaChangeCounter(); window_ = c->Game.GetGameWindow();
         status_ = "Close the POEFixer menu to start. Keep the empty Reforging Bench open. Esc cancels.";
@@ -815,7 +820,7 @@ public:
         stashResumeForDeposit_ = false;
         stashRarityMask_ = rarityMask; stashCategory_ = stashPage_ = 0;
         stashTabSelected_ = false; stashPendingItem_.reset(); stashFromExhaustion_ = false;
-        all_ = true; inputTransferDelayMs_ = std::clamp(transferDelayMs, 10, 1900);
+        all_ = true; inputTransferDelayMs_ = FasterTransferDelayMs(transferDelayMs);
         inputPulseMs_ = std::clamp(pulseMs, 20, 40);
         area_ = c->Game.GetAreaChangeCounter(); window_ = c->Game.GetGameWindow();
         status_ = "Keep TABLET+FRAGMENTS open on Tablets. Close the POEFixer menu to scan selected categories.";

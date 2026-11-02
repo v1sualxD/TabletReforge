@@ -1,5 +1,9 @@
 # Changelog
 
+## TabletReforge 0.6.7
+
+- Increased tablet transfer, reforge, and result pickup pace by approximately 1.3x. The selected transfer-speed slider still applies; click pulse duration and six-second safety confirmation remain unchanged.
+
 ## TabletReforge 0.6.6
 
 - Added a final Diagnostics section that captures controller state, stash/inventory data, visible UI controls, and world entity paths to `config/tablet-reforge-diagnostics.txt`.
