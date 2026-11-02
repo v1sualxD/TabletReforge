@@ -71,6 +71,10 @@ class TabletReforgeController {
     int inputPulseMs_ = 40;
 
 
+    bool debugRecording_ = false;
+    std::ofstream debugLog_;
+    Clock::time_point debugStarted_{}, debugNextSample_{};
+
     static bool ContainsSanctifiedText(const std::string& value) {
         return NormalizeIdentifier(value).find("sanctified") != std::string::npos;
     }
@@ -211,6 +215,88 @@ class TabletReforgeController {
         for (uintptr_t child : c->Ui.GetChildren(address)) {
             if (budget <= 0) break;
             ReadUi(c, child, index, depth + 1, budget, nodes);
+        }
+    }
+    void RecordDebugSample(const PluginSDK::Context* c) {
+        if (!debugRecording_ || !debugLog_) return;
+        const auto now = Clock::now();
+        if (now < debugNextSample_) return;
+        debugNextSample_ = now + std::chrono::milliseconds(500);
+        try {
+            POINT screen{};
+            const bool cursorValid = ::GetCursorPos(&screen) != FALSE;
+            POINT client = screen;
+            const HWND gameWindow = c->Game.GetGameWindow();
+            const bool clientValid = cursorValid && gameWindow && ::ScreenToClient(gameWindow, &client);
+            const HWND foreground = ::GetForegroundWindow();
+            DWORD foregroundPid = 0;
+            if (foreground) ::GetWindowThreadProcessId(foreground, &foregroundPid);
+            const auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(now - debugStarted_).count();
+            debugLog_ << "\n--- sample +" << elapsed << " ms ---\n"
+                << "status=[" << status_ << "] phase=" << static_cast<int>(phase_)
+                << " stash_stage=" << static_cast<int>(stashStage_)
+                << " stash_cycle=" << stashCycle_ << " pending=" << pending_
+                << " foreground_hwnd=" << foreground << " foreground_pid=" << foregroundPid
+                << " game_hwnd=" << gameWindow << " game_foreground=" << Foreground(c)
+                << " cursor_screen=" << (cursorValid ? std::to_string(screen.x) + "," + std::to_string(screen.y) : "unavailable")
+                << " cursor_client=" << (clientValid ? std::to_string(client.x) + "," + std::to_string(client.y) : "unavailable")
+                << "\n";
+            const auto tabs = c->Game.EnumerateStashTabs(PluginSDK::StashDomain::Own);
+            debugLog_ << "stash_open=" << tabs.IsOpen() << " stash_status=" << tabs.Status << " active_tabs=";
+            for (const auto& tab : tabs.Tabs)
+                if (tab.IsActive == 1) debugLog_ << "[" << tab.Index << ":" << tab.Name << "]";
+            debugLog_ << "\n";
+            for (const auto& inv : c->Inventory.GetAll()) {
+                size_t tabletCount = 0;
+                for (const auto& item : inv.Items)
+                    if (LooksLikeTablet(item.Path, item.BaseTypeName)) ++tabletCount;
+                debugLog_ << "inventory id=" << inv.InventoryId << " name=[" << c->Inventory.GetName(inv.InventoryId)
+                    << "] grid=" << inv.Grid.Valid << ":" << inv.Grid.GridScreenX << "," << inv.Grid.GridScreenY
+                    << "," << inv.Grid.CellSize << " size=" << inv.TotalBoxesX << "x" << inv.TotalBoxesY
+                    << " items=" << inv.Items.size() << " tablets=" << tabletCount << "\n";
+                for (const auto& item : inv.Items) {
+                    if (!LooksLikeTablet(item.Path, item.BaseTypeName)) continue;
+                    debugLog_ << "  tablet slot=" << item.SlotX << "," << item.SlotY
+                        << " screen_valid=" << item.ScreenValid << " rect=" << item.ScreenX << "," << item.ScreenY
+                        << " " << item.ScreenW << "x" << item.ScreenH << " identified=" << item.IsIdentified
+                        << " rarity=" << item.Rarity << " corrupted=" << item.IsCorrupted
+                        << " category=[" << ClassifyFromText(item.Path, item.BaseTypeName) << "]"
+                        << " base=[" << item.BaseTypeName << "] path=[" << item.Path << "]\n";
+                }
+            }
+            std::vector<BenchNode> nodes;
+            int budget = 2000;
+            ReadUi(c, c->Ui.GetGameUiRoot(), -1, 0, budget, nodes);
+            size_t written = 0;
+            for (const auto& node : nodes) {
+                if (written >= 60) break;
+                const auto text = c->Ui.GetText(node.address);
+                const bool overlapsCursor = clientValid && client.x >= node.x && client.y >= node.y &&
+                    client.x < node.x + node.w && client.y < node.y + node.h;
+                const bool nearby = clientValid && node.w > 0 && node.h > 0 &&
+                    std::abs(node.CenterX() - client.x) <= 420 && std::abs(node.CenterY() - client.y) <= 300;
+                const auto normalized = NormalizeIdentifier(text + " " + node.text + " " + node.name);
+                const bool relevant = overlapsCursor || nearby ||
+                    normalized.find("tablet") != std::string::npos ||
+                    normalized.find("sanctified") != std::string::npos ||
+                    normalized.find("tooltip") != std::string::npos;
+                if (!relevant || (text.empty() && node.text.empty() && node.name.empty())) continue;
+                auto clean = [](std::string value) {
+                    std::replace(value.begin(), value.end(), '\r', ' ');
+                    std::replace(value.begin(), value.end(), '\n', ' ');
+                    return value;
+                };
+                debugLog_ << "ui [" << clean(node.name) << "] id=[" << clean(node.text)
+                    << "] text=[" << clean(text) << "] rect=" << node.x << "," << node.y
+                    << " " << node.w << "x" << node.h << " cursor_overlap=" << overlapsCursor << "\n";
+                ++written;
+            }
+            debugLog_ << "ui_nodes=" << nodes.size() << " remaining_budget=" << budget
+                << " relevant_nodes_written=" << written << "\n";
+            debugLog_.flush();
+        } catch (...) {
+            debugLog_ << "sample_error=exception\n";
+            debugLog_.flush();
         }
     }
     bool AttachBench(const PluginSDK::Context* c, const std::filesystem::path& directory, bool writeDiagnostic = true) {
@@ -1124,7 +1210,36 @@ class TabletReforgeController {
         }
     }
 public:
-    ~TabletReforgeController() { ReleaseInput(); }
+    ~TabletReforgeController() { StopDebugCapture(); ReleaseInput(); }
+    bool DebugCaptureActive() const { return debugRecording_; }
+    void StartDebugCapture(const std::filesystem::path& directory) {
+        StopDebugCapture();
+        try {
+            const auto config = directory / "config";
+            std::filesystem::create_directories(config);
+            debugLog_.open(config / "tablet-reforge-live-debug.txt", std::ios::out | std::ios::trunc);
+            if (!debugLog_) { status_ = "Could not open config/tablet-reforge-live-debug.txt."; return; }
+            debugStarted_ = Clock::now();
+            debugNextSample_ = debugStarted_;
+            debugRecording_ = true;
+            debugLog_ << "TabletReforge live debug capture 0.7.2\n"
+                << "Started manually from Diagnostics. Samples every 500 ms until Stop is pressed.\n";
+            status_ = "Debug recording started. Reproduce the issue, then press Stop recording.";
+        } catch (...) {
+            debugRecording_ = false;
+            status_ = "Could not start live debug recording.";
+        }
+    }
+    void StopDebugCapture() {
+        if (debugLog_.is_open()) {
+            debugLog_ << "\nCapture stopped manually.\n";
+            debugLog_.flush();
+            debugLog_.close();
+        }
+        const bool wasRecording = debugRecording_;
+        debugRecording_ = false;
+        if (wasRecording) status_ = "Debug recording saved to config/tablet-reforge-live-debug.txt.";
+    }
     void CaptureStashDiagnostics(const PluginSDK::Context* c, const std::filesystem::path& directory) {
         CaptureStashDiagnosticsImpl(c, directory);
     }
@@ -1215,6 +1330,7 @@ public:
     void Tick(const PluginSDK::Context* c, bool all, uint8_t rarityMask,
               const std::vector<TabletHelperConfig::TypeConfig>& typeRules,
               const std::filesystem::path& directory) {
+        RecordDebugSample(c);
         const auto now = Clock::now();
         if (Busy() && (::GetAsyncKeyState(VK_ESCAPE) & 0x8000)) { Stop("Stopped. Recover any tablets left in the bench before restarting."); return; }
         if (Busy() && (!c->Game.IsInGame() || c->Game.GetAreaChangeCounter() != area_ || c->Game.GetGameWindow() != window_)) {

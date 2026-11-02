@@ -38,7 +38,7 @@ uint8_t MakeRarityMask(bool magic, bool rare) {
 POEFIXER_PLUGIN_INFO(
     "TabletReforge",
     "Tablet Reforge",
-    "0.7.1",
+    "0.7.2",
     "TabletReforge contributors; Omer Faruk ARPA; POEFixer",
     "Reforge identified tablets by rarity in matching category trios, collect results without reusing unidentified tablets, and display tablet types.")
 
@@ -243,9 +243,19 @@ public:
         ImGui::Separator();
         if (ImGui::CollapsingHeader("Diagnostics")) {
             ImGui::TextWrapped("Capture a report after an error, with the relevant game panel open. It records the current status, inventory, stash controls, visible UI and world entity paths.");
+            if (!controller_.DebugCaptureActive()) {
+                if (ImGui::Button("Start debug recording", ImVec2(210, 30)))
+                    controller_.StartDebugCapture(DirectoryPath());
+            } else {
+                if (ImGui::Button("Stop recording", ImVec2(210, 30)))
+                    controller_.StopDebugCapture();
+                ImGui::SameLine();
+                ImGui::TextColored(ImVec4(0.3f, 0.9f, 0.4f, 1.0f), "Recording");
+            }
+            ImGui::TextDisabled("Live capture: config/tablet-reforge-live-debug.txt (samples every 500 ms).");
             if (ImGui::Button("Capture diagnostic report", ImVec2(210, 30)))
                 controller_.CaptureStashDiagnostics(ctx(), DirectoryPath());
-            ImGui::TextDisabled("Saved to config/tablet-reforge-diagnostics.txt in the plugin folder.");
+            ImGui::TextDisabled("Snapshot: config/tablet-reforge-diagnostics.txt.");
         }
 
         ImGui::PopID();

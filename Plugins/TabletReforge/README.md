@@ -1,4 +1,4 @@
-# TabletReforge 0.7.1
+# TabletReforge 0.7.2
 
 An English-only POEFixer plugin for reforging Path of Exile 2 tablets. Based on TabletHelper by Omer Faruk ARPA and POEFixer; distributed under GPL-3.0.
 
@@ -13,7 +13,7 @@ Normal, unidentified, corrupted, Sanctified, and below-threshold tablets are exc
 
 ## Diagnostics
 
-Open the plugin's final **Diagnostics** section and capture a report after an error, with the relevant in-game panel open. It saves `config/tablet-reforge-diagnostics.txt` in the plugin folder. The report includes controller state, inventory, visible UI, and entity metadata paths and targetability to help locate the movable hideout bench.
+Open the plugin's final **Diagnostics** section. **Start debug recording**, reproduce the issue in game (including switching between stash and bench), then return to POEFixer and press **Stop recording**. It saves `config/tablet-reforge-live-debug.txt` in the plugin folder, sampling every 500 ms with controller stage, foreground window, mouse position, tablet inventory geometry and nearby UI text. Send that file to help identify where the automation stops. The separate **Capture diagnostic report** button still saves a one-time snapshot to `config/tablet-reforge-diagnostics.txt`.
 
 ## Controls and safety
 
