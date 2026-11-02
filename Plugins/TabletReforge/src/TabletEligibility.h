@@ -4,7 +4,7 @@
 
 namespace TabletHelper {
 inline bool EligibleTablet(const ReforgeItem& item) {
-    return item.address && item.identified && !item.corrupted && item.rarity >= 1 &&
+    return item.address && item.identified && !item.corrupted && !item.sanctified && item.rarity >= 1 &&
         item.rarity <= 2 && LooksLikeTablet(item.path, item.baseType) &&
         IsRealType(TabletCategory(item));
 }
