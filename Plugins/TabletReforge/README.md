@@ -1,4 +1,4 @@
-# TabletReforge 0.6.4
+# TabletReforge 0.6.5
 
 An English-only POEFixer plugin for reforging Path of Exile 2 tablets. Based on TabletHelper by Omer Faruk ARPA and POEFixer; distributed under GPL-3.0.
 
@@ -8,7 +8,7 @@ An English-only POEFixer plugin for reforging Path of Exile 2 tablets. Based on 
 2. Select tablet categories and rarities, set the transfer speed, then click **Start reforging**.
 3. Close the POEFixer menu within 30 seconds. Press **Esc** to stop.
 
-Only identified, non-corrupted tablets are used. A batch always contains three tablets of the same category and rarity. Results and leftovers are not reused in the same batch plan.
+Only identified, non-corrupted Magic and Rare tablets are used; Normal tablets are excluded. Set the **Minimum uses to process** slider from 1 to 10. Tablets below that uses threshold are skipped in both inventory reforging and stash withdrawal. A batch always contains three tablets of the same category and rarity. Results and leftovers are not reused in the same batch plan.
 
 ## Stash cycle (new in 0.5.8)
 
@@ -23,7 +23,7 @@ Stash and bench panels cannot stay open together, so the plugin pauses for the p
 ## Controls and safety
 
 - Category order: Irradiated, Ritual, Expedition, Delirium, Breach, Abyss, Temple, Overseer. The ninth stash icon is ignored.
-- Rarity colors: Normal gray, Magic blue, Rare yellow.
+- Only Magic and Rare rarities are processed; rarity highlight colors are Magic blue and Rare yellow.
 - **Esc** cancels an active step. If a validation fails, check the status message and recover any items manually before restarting.
 - The plugin uses live UI geometry and Ctrl + left click. It does not use fixed screen coordinates.
 
