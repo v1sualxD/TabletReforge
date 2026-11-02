@@ -1,3 +1,0 @@
-# Keys TabletHelper builds at run time: the bonus labels of src/TabletBonusCatalog.h
-# ("bonus_<Id>"; tests/test_logic.cpp checks that every key it builds is in en.json).
-bonus_
