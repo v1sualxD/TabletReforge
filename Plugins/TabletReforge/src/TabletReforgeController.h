@@ -359,10 +359,14 @@ class TabletReforgeController {
                     << " visible_items=" << visible << '\n';
                 for (const auto& item : inv.Items) {
                     if (!LooksLikeTablet(item.Path, item.BaseTypeName)) continue;
+                    const auto mods = c->Inventory.ReadItemMods(item.Address);
+                    const auto identity = Identity(c, item);
                     out << "  tablet slot=" << item.SlotX << ',' << item.SlotY
                         << " screen_valid=" << item.ScreenValid << " rect="
                         << item.ScreenX << ',' << item.ScreenY << ' ' << item.ScreenW << 'x' << item.ScreenH
-                        << " identified=" << item.IsIdentified << " rarity=" << item.Rarity
+                        << " identified=" << identity.identified << " rarity=" << identity.rarity
+                        << " mods_valid=" << mods.Valid
+                        << " raw_identified=" << item.IsIdentified << " raw_rarity=" << item.Rarity
                         << " category=" << ClassifyFromText(item.Path, item.BaseTypeName)
                         << " path=" << item.Path << " base=" << item.BaseTypeName << '\n';
                 }
