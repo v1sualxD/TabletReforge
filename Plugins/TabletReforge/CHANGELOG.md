@@ -1,5 +1,10 @@
 # Changelog
 
+## TabletReforge 0.6.6
+
+- Added a final Diagnostics section that captures controller state, stash/inventory data, visible UI controls, and world entity paths to `config/tablet-reforge-diagnostics.txt`.
+
+
 ## TabletReforge 0.6.5
 
 - Removed Normal rarity from reforging and stash withdrawals; only Magic and Rare tablets can be processed.
