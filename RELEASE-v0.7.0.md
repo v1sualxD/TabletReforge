@@ -1,0 +1,1 @@
+TabletReforge v0.7.0 builds on the current main source. It adds the single-button automatic stash-to-bench workflow, opens the player's stash and selects the Tablet tab, and excludes Sanctified tablets after reading the tooltip marker.
