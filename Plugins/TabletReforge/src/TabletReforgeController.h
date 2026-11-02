@@ -1,6 +1,7 @@
 #pragma once
 #include "ItemRects.h"
 #include "TabletEligibility.h"
+#include "TabletMatch.h"
 #include "ReforgeUiDiscovery.h"
 #include <Windows.h>
 #include <chrono>
@@ -10,16 +11,18 @@
 
 
 namespace TabletHelper {
-struct TabletLabel { ScreenRect rect; std::string type; };
+struct TabletLabel { ScreenRect rect; std::string type; int rarity = 0; };
+struct TabletOutline { ScreenRect rect; int rarity = 0; };
 class TabletReforgeController {
     using Clock = std::chrono::steady_clock;
     enum class Phase { Idle, InitialScan, Transfer, WaitTransfer, Forge, WaitForge, PlaceResult, WaitResult };
     Phase phase_ = Phase::Idle;
-    std::vector<ScreenRect> outlines_;
+    std::vector<TabletOutline> outlines_;
     std::vector<TabletLabel> labels_;
     size_t displayedCount_ = 0;
     uint64_t identityCacheArea_ = ~0ull, identityCacheStamp_ = 0;
     std::map<uintptr_t, ReforgeItem> identityCache_;
+    std::map<uintptr_t, ParsedTablet> parsedCache_;
     bool pending_ = false, all_ = false;
     uint64_t selectionArea_ = ~0ull, area_ = 0, stamp_ = 0;
     HWND selectionWindow_ = nullptr, window_ = nullptr;
@@ -40,7 +43,8 @@ class TabletReforgeController {
     int inputPulseMs_ = 40;
 
 
-    static ReforgeItem Identity(const PluginSDK::Context* c, const PluginSDK::InventoryItem& i) {
+    static ReforgeItem Identity(const PluginSDK::Context* c, const PluginSDK::InventoryItem& i,
+                                ParsedTablet* parsed = nullptr) {
         ReforgeItem result{i.Address, i.Path, i.BaseTypeName, i.Rarity, i.ItemLevel, i.SlotX, i.SlotY,
             i.IsIdentified, i.IsCorrupted};
         // Some POEFixer hosts leave rarity/identification unset in the inventory snapshot.
@@ -52,6 +56,9 @@ class TabletReforgeController {
                 result.level = mods.ItemLevel;
                 result.identified = mods.IsIdentified;
                 result.corrupted = mods.IsCorrupted;
+                if (parsed) *parsed = ParseWithMods(i.Path, i.BaseTypeName, mods);
+            } else if (parsed) {
+                *parsed = ParseTypeOnly(i.Path, i.BaseTypeName);
             }
         }
         return result;
@@ -60,13 +67,33 @@ class TabletReforgeController {
         const PluginSDK::Inventory& inv, uint64_t area, uint64_t stamp) {
         if (identityCacheArea_ != area || identityCacheStamp_ != stamp) {
             identityCache_.clear();
+            parsedCache_.clear();
             for (const auto& item : inv.Items) {
-                if (item.Address) identityCache_.emplace(item.Address, Identity(c, item));
+                if (item.Address) {
+                    ParsedTablet parsed;
+                    identityCache_.emplace(item.Address, Identity(c, item, &parsed));
+                    parsedCache_.emplace(item.Address, std::move(parsed));
+                }
             }
             identityCacheArea_ = area;
             identityCacheStamp_ = stamp;
         }
         return identityCache_;
+    }
+    bool ReforgeCandidate(const ReforgeItem& item, uint8_t rarityMask,
+                          const std::vector<TabletHelperConfig::TypeConfig>& typeRules) const {
+        if (!EligibleTablet(item, rarityMask)) return false;
+        const std::string category = TabletCategory(item);
+        const auto rule = std::find_if(typeRules.begin(), typeRules.end(), [&](const auto& t) {
+            return t.key == category;
+        });
+        if (rule == typeRules.end() || !rule->enabled) return false;
+        const auto parsed = parsedCache_.find(item.address);
+        if (parsed == parsedCache_.end() || !parsed->second.modsRead) return false;
+        // If the SDK did not expose any mod identities, do not treat an unreadable
+        // tablet as a failed keep filter and risk reforging it by accident.
+        if (TabletHelper::HasFilters(*rule) && parsed->second.matchKeys.empty()) return false;
+        return !TabletHelper::ConfigAccepts(*rule, parsed->second, true, category, nullptr);
     }
     static void WriteScanDiagnostic(const PluginSDK::Context* c, const PluginSDK::Inventory& inv,
         const std::map<uintptr_t, ReforgeItem>& bag, const std::filesystem::path& directory) {
@@ -74,7 +101,7 @@ class TabletReforgeController {
             const auto config = directory / "config";
             std::filesystem::create_directories(config);
             std::ofstream out(config / "tablet-scan.txt", std::ios::trunc);
-            out << "TabletReforge 0.4.0 inventory scan\n"
+            out << "TabletReforge 0.5.0 inventory scan\n"
                 << "slot_x,slot_y,path,base_type,raw_rarity,raw_identified,mods_valid,mods_rarity,mods_identified,mods_corrupted,category,effective_rarity,effective_identified,effective_corrupted,eligible\n";
             for (const auto& item : inv.Items) {
                 if (!LooksLikeTablet(item.Path, item.BaseTypeName)) continue;
@@ -270,7 +297,8 @@ class TabletReforgeController {
         deadline_ = actionAt_ + std::chrono::seconds(6);
         c->Inventory.Scan(1);
     }
-    void Preview(const PluginSDK::Context* c, bool all, uint8_t rarityMask) {
+    void Preview(const PluginSDK::Context* c, bool all, uint8_t rarityMask,
+                 const std::vector<TabletHelperConfig::TypeConfig>& typeRules) {
         const uint64_t area = c->Game.GetAreaChangeCounter();
         if (area != selectionArea_ || selectionWindow_ != c->Game.GetGameWindow()) {
             selectionArea_ = area; selectionWindow_ = c->Game.GetGameWindow();
@@ -279,7 +307,7 @@ class TabletReforgeController {
         const auto snapshot = c->Inventory.ReadSnapshot(1);
         if (!snapshot.Ready || snapshot.AreaChangeCounter != area) return;
         const auto& bag = Bag(c, snapshot.Value, snapshot.AreaChangeCounter, snapshot.ScanStamp);
-        for (const auto& [address, identity] : bag) { (void)address; if (EligibleTablet(identity, rarityMask)) ++displayedCount_; }
+        for (const auto& [address, identity] : bag) { (void)address; if (all && ReforgeCandidate(identity, rarityMask, typeRules)) ++displayedCount_; }
         if (!Foreground(c)) return;
         RECT client{};
         if (!::GetClientRect(c->Game.GetGameWindow(), &client)) return;
@@ -293,8 +321,9 @@ class TabletReforgeController {
                 static_cast<float>(client.right), static_cast<float>(client.bottom));
             if (!rect) continue;
             const std::string type = ClassifyFromText(item.Path, item.BaseTypeName);
-            labels_.push_back({*rect, type});
-            if (all && EligibleTablet(identity, rarityMask)) outlines_.push_back(*rect);
+            labels_.push_back({*rect, type, identity.rarity});
+            if (identity.identified && identity.rarity >= 0 && identity.rarity <= 2)
+                outlines_.push_back({*rect, identity.rarity});
         }
     }
 public:
@@ -302,7 +331,7 @@ public:
     bool Running() const { return phase_ != Phase::Idle; }
     bool Busy() const { return pending_ || Running(); }
     size_t SelectedCount() const { return displayedCount_; }
-    const std::vector<ScreenRect>& Outlines() const { return outlines_; }
+    const std::vector<TabletOutline>& Outlines() const { return outlines_; }
     const std::vector<TabletLabel>& Labels() const { return labels_; }
     const std::string& Status() const { return status_; }
     void Stop(const char* reason) { ReleaseInput(); phase_ = Phase::Idle; pending_ = false; targets_.reset(); status_ = reason; }
@@ -316,7 +345,9 @@ public:
         requestExpires_ = Clock::now() + std::chrono::seconds(30);
         status_ = "Close the POEFixer menu to start. Keep the empty Reforging Bench open. Esc cancels.";
     }
-    void Tick(const PluginSDK::Context* c, bool all, uint8_t rarityMask, const std::filesystem::path& directory) {
+    void Tick(const PluginSDK::Context* c, bool all, uint8_t rarityMask,
+              const std::vector<TabletHelperConfig::TypeConfig>& typeRules,
+              const std::filesystem::path& directory) {
         const auto now = Clock::now();
         if (Busy() && (::GetAsyncKeyState(VK_ESCAPE) & 0x8000)) { Stop("Stopped. Recover any tablets left in the bench before restarting."); return; }
         if (Busy() && (!c->Game.IsInGame() || c->Game.GetAreaChangeCounter() != area_ || c->Game.GetGameWindow() != window_)) {
@@ -325,7 +356,7 @@ public:
         if (pending_ && now > requestExpires_) { Stop("Start cancelled: the menu was not closed within 30 seconds."); return; }
         if (!c->Game.IsInGame()) { outlines_.clear(); labels_.clear(); displayedCount_ = 0; return; }
         if (PumpInput(c)) return;
-        if (!Busy()) Preview(c, all, rarityMask); else { outlines_.clear(); labels_.clear(); }
+        if (!Busy()) Preview(c, all, rarityMask, typeRules); else { outlines_.clear(); labels_.clear(); }
         if (now >= nextScan_) {
             c->Inventory.Scan(1);
             nextScan_ = now + std::chrono::milliseconds(Running() ? 25 : 100);
@@ -359,7 +390,7 @@ public:
         const auto& bag = Bag(c, inv, snapshot.AreaChangeCounter, snapshot.ScanStamp);
         if (phase_ == Phase::InitialScan) {
             std::vector<ReforgeItem> candidates;
-            for (const auto& [address, identity] : bag) { (void)address; if (EligibleTablet(identity, rarityMask)) candidates.push_back(identity); }
+            for (const auto& [address, identity] : bag) { (void)address; if (all && ReforgeCandidate(identity, rarityMask, typeRules)) candidates.push_back(identity); }
             const size_t eligibleCount = candidates.size();
             batches_ = PlanReforge(std::move(candidates));
             expected_ = bag; batch_ = item_ = 0;
@@ -377,7 +408,7 @@ public:
             const auto target = batches_[batch_][item_];
             const auto item = std::find_if(inv.Items.begin(), inv.Items.end(), [&](const auto& i) { return i.Address == target.address; });
             const auto current = bag.find(target.address);
-            if (item == inv.Items.end() || current == bag.end() || current->second != target || !EligibleTablet(current->second, rarityMask)) { Stop("Stopped: selected tablet is missing or no longer eligible."); return; }
+            if (item == inv.Items.end() || current == bag.end() || current->second != target || !ReforgeCandidate(current->second, rarityMask, typeRules)) { Stop("Stopped: selected tablet is missing or no longer eligible."); return; }
             const auto rect = ResolveItemRect(inv, *item, HasItemRects(inv), true, static_cast<float>(width_), static_cast<float>(height_));
             if (!rect || !Click(c, {static_cast<LONG>(rect->x + rect->w / 2), static_cast<LONG>(rect->y + rect->h / 2)}, true)) {
                 Stop("Stopped: input was not sent. Release modifier keys and mouse buttons."); return;
