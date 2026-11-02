@@ -37,9 +37,9 @@ jobs:
           Copy-Item x64/Release/Plugins/TabletReforge/TabletReforge.dll $destination
           Copy-Item LICENSE, README.md $destination
           Compress-Archive -Path package/Plugins -DestinationPath TabletReforge.zip
-      - name: Publish GitHub release
+      - name: Update published GitHub release asset
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create v0.7.3 TabletReforge.zip --title "TabletReforge v0.7.3" --notes "Fixes the stash tooltip scan stopping before it could verify hovered tablets by increasing its UI traversal budget to match stash discovery. Keeps the fail-safe: no click is sent if the hovered item cannot be verified."
+          gh release upload v0.7.3 TabletReforge.zip --clobber --repo "$env:GITHUB_REPOSITORY"
