@@ -1,4 +1,4 @@
-#include "../Plugins/TabletReforge/src/TabletSelection.h"
+#include "../Plugins/TabletReforge/src/TabletEligibility.h"
 #include "../Plugins/TabletReforge/src/ReforgeUiDiscovery.h"
 #include <cstdlib>
 #include <iostream>
@@ -11,23 +11,11 @@ static ReforgeItem Item(uintptr_t id, const char* category = "Abyss", int rarity
         static_cast<int>(id % 12), static_cast<int>(id / 12), true, false};
 }
 int main() {
-    TabletSelection selected;
-    std::map<uintptr_t, ReforgeItem> bag{{1, Item(1)}, {2, Item(2)}, {3, Item(3)}, {4, Item(4, "Expedition")}};
-    selected.Touch(bag[1]); selected.Touch(bag[1]);
-    Check(selected.Count() == 1, "hovering for multiple frames toggles once per chord");
-    selected.Touch(bag[2]); selected.Touch(bag[3]);
-    Check(PlanReforge(selected.Candidates(bag, false)).size() == 1, "three manually selected Abyss tablets form one batch");
-    selected.ReleaseChord(); selected.Touch(bag[1]);
-    Check(!selected.Contains(bag[1]) && selected.Count() == 2, "a new chord deselects the hovered tablet");
-    Check(selected.Candidates(bag, true).size() == 4, "all-inventory mode includes unselected eligible tablets");
-    bag[2].x = 10; selected.Refresh(bag);
-    Check(selected.Contains(bag[2]), "selection follows the same item when it moves slots");
-    bag[2].path = Item(2, "Ritual").path; selected.Refresh(bag);
-    Check(!selected.Contains(bag[2]), "reused addresses do not inherit selection");
-    bag[3].identified = false; selected.Refresh(bag);
-    Check(selected.Count() == 0, "unidentified tablets are removed from selection");
-    auto unid = Item(5); unid.identified = false; selected.Touch(unid);
-    Check(selected.Count() == 0, "unidentified results cannot be selected");
+    Check(EligibleTablet(Item(1)), "identified tablets are eligible");
+    auto unid = Item(5); unid.identified = false;
+    Check(!EligibleTablet(unid), "unidentified results are excluded");
+    auto corrupted = Item(6); corrupted.corrupted = true;
+    Check(!EligibleTablet(corrupted), "corrupted tablets are excluded");
     auto mixed = PlanReforge({Item(1,"Abyss"), Item(2,"Abyss"), Item(3,"Abyss"),
         Item(4,"Expedition"), Item(5,"Expedition"), Item(6,"Expedition"),
         Item(7,"Ritual"), Item(8,"Ritual"), Item(9,"Ritual"), Item(10,"Ritual")});
@@ -48,5 +36,24 @@ int main() {
     Check(!DiscoverBench(nodes,1920,1080), "other windows are not accepted as a reforging bench");
     nodes[1].name = "reforging_bench_panel"; nodes[3].name.clear();
     Check(!DiscoverBench(nodes,1920,1080), "missing output identity never falls back to coordinates");
+    // Live client layout observed on 2026-11-02: unnamed bench widgets, title and
+    // a lowercase text button. The output is above three tall input slots.
+    std::vector<BenchNode> liveLayout{
+        {200,-1,"game_ui","",0,0,1920,1080},
+        {201,0,"","",350,150,560,740},
+        {202,1,"","Reforging Bench",405,167,445,28},
+        {203,1,"","reforge",592,854,70,22},
+        {204,1,"","",435,582,122,227},
+        {205,1,"","",566,582,122,227},
+        {206,1,"","",698,582,122,227},
+        {207,1,"","",566,295,122,227}};
+    const auto liveTargets = DiscoverBench(liveLayout,1920,1080);
+    Check(liveTargets && liveTargets->output.address == 207 && liveTargets->button.address == 203,
+        "unnamed live bench layout resolves output above three inputs");
+    liveLayout.pop_back();
+    Check(!DiscoverBench(liveLayout,1920,1080), "missing structural output never generates a guessed target");
+    liveLayout.push_back({207,1,"","",566,295,122,227});
+    liveLayout[6].y = 650;
+    Check(!DiscoverBench(liveLayout,1920,1080), "non-aligned input slots are rejected");
     std::cout << "Selection, category grouping and UI discovery: all checks passed\n";
 }
