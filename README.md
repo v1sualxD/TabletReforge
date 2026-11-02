@@ -1,4 +1,4 @@
-# TabletReforge 0.3.0
+# TabletReforge 0.3.2
 
 An English-only POEFixer plugin for reforging identified Path of Exile 2 tablets from the inventory.
 Based on TabletHelper by Omer Faruk ARPA and POEFixer, distributed under GPL-3.0.
@@ -17,9 +17,13 @@ detected, the sequence stops and reports that the bench may need manual recovery
 
 ## Tablet rules
 
-Only identified, non-corrupted tablets with the same metadata base and rarity are grouped, three at a
-time. Abyss, Expedition, Ritual and other types are never mixed. Any one or two leftovers remain in the
-inventory. Reforged results are never added to the queue, so unidentified results are not reforged.
+Only identified, non-corrupted tablets with the same visible category and rarity are grouped, three at a
+time. Abyss, Expedition, Ritual and other types are never mixed. Internal metadata path variants of the
+same category can be grouped together. Any one or two leftovers remain in the inventory. Reforged results
+are never added to the queue, so unidentified results are not reforged.
+
+When no compatible trio is found, the plugin writes each tablet path, base type, category, rarity,
+identification state and eligibility to `Plugins/TabletReforge/config/tablet-scan.txt`.
 
 **All tablets in inventory** is the only selection mode. The former Ctrl + Alt selection has been removed.
 The optional type labels show the tablet category on inventory items.
@@ -49,7 +53,7 @@ To build locally, install Visual Studio 2022 Desktop C++ with MSVC v143 and the 
 `x64/Release/Plugins/TabletReforge/TabletReforge.dll`.
 
 Alternatively, run **Actions > Build TabletReforge > Run workflow** on GitHub. The workflow builds the
-DLL, runs the grouping and UI-discovery checks, and creates the installable ZIP.
+DLL, runs the grouping and UI-discovery checks 20 times, and creates the installable ZIP.
 
 ## Attribution
 
