@@ -102,21 +102,29 @@ class TabletReforgeController {
     DWORD clipboardSequenceBeforeCopy_ = 0;
     Clock::time_point clipboardDeadline_{};
     bool clipboardSnapshotValid_ = false, clipboardVerified_ = false;
+    std::string clipboardReadFailure_;
+    Clock::time_point nextStashScan_{};
 
     bool BeginClipboardTabletRead(const PluginSDK::Context* c) {
+        clipboardReadFailure_ = "Game focus or input is not ready.";
         clipboardBackup_.clear();
         clipboardSnapshotValid_ = false;
         if (!Foreground(c) || !Ready(c)) return false;
         for (int key : {VK_CONTROL, VK_SHIFT, VK_MENU, VK_LWIN, VK_RWIN, VK_LBUTTON, VK_RBUTTON})
             if (::GetAsyncKeyState(key) & 0x8000) return false;
 
+        clipboardReadFailure_ = "Clipboard is temporarily busy.";
         if (!::OpenClipboard(nullptr)) return false;
         bool captured = true;
         UINT format = 0;
         while ((format = ::EnumClipboardFormats(format)) != 0) {
+            // CF_BITMAP is a GDI handle, not HGLOBAL. Windows synthesizes it
+            // from the preserved DIB/DIBV5 data when the clipboard is restored.
+            if (format == CF_BITMAP && (::IsClipboardFormatAvailable(CF_DIB) ||
+                ::IsClipboardFormatAvailable(CF_DIBV5))) continue;
             HANDLE handle = ::GetClipboardData(format);
             const SIZE_T size = handle ? ::GlobalSize(static_cast<HGLOBAL>(handle)) : 0;
-            if (!size) { captured = false; break; }
+            if (!size) { clipboardReadFailure_ = "Unsupported clipboard handle format " + std::to_string(format); captured = false; break; }
             const auto* data = static_cast<const unsigned char*>(::GlobalLock(static_cast<HGLOBAL>(handle)));
             if (!data) { captured = false; break; }
             ClipboardFormatSnapshot entry;
@@ -1081,13 +1089,18 @@ class TabletReforgeController {
             stashStage_ == StashStage::WaitPull || stashStage_ == StashStage::CheckTabletTooltip ||
             stashStage_ == StashStage::WaitTabletClipboard || stashStage_ == StashStage::Deposit ||
             stashStage_ == StashStage::WaitDeposit;
+        if (Clock::now() >= nextStashScan_) {
+            c->Inventory.Scan(1);
+            if (stashInventoryId_ > 0 && TabletStashPanelOpen(c)) c->Inventory.Scan(stashInventoryId_);
+            nextStashScan_ = Clock::now() + std::chrono::milliseconds(250);
+        }
         if (PumpInput(c)) return;
         if (PumpWorldClick(c)) return;
 
         const auto now = Clock::now();
         if (now - stashActionAt_ < std::chrono::milliseconds(70)) return;
         if (stashStage_ == StashStage::CheckTabletTooltip &&
-            now - stashActionAt_ < std::chrono::milliseconds(105)) return;
+            now - stashActionAt_ < std::chrono::milliseconds(250)) return;
         if (stashStage_ == StashStage::CloseStashForBench) {
             if (TabletStashPanelOpen(c)) {
                 if (!PressEscape(c)) { status_ = "Waiting to close the Tablet stash safely..."; return; }
@@ -1494,7 +1507,7 @@ class TabletReforgeController {
             return;
         }
         if (stashStage_ == StashStage::WaitTabletClipboard) {
-            if (!stashPendingItem_ || bag != stashExpectedBag_) {
+            if (!stashPendingItem_ || !SameBagContents(bag, stashExpectedBag_)) {
                 if (clipboardSnapshotValid_)
                     RestoreClipboardSnapshot(::GetClipboardSequenceNumber());
                 Stop("Tablet inventory changed while checking its copied text."); return;
@@ -1535,7 +1548,7 @@ class TabletReforgeController {
             return;
         }
         if (stashStage_ == StashStage::CheckTabletTooltip) {
-            if (!stashPendingItem_ || bag != stashExpectedBag_) {
+            if (!stashPendingItem_ || !SameBagContents(bag, stashExpectedBag_)) {
                 Stop("Tablet inventory changed while checking its properties."); return;
             }
             std::optional<bool> sanctified;
@@ -1543,7 +1556,14 @@ class TabletReforgeController {
             else sanctified = ReadHoveredTabletSanctified(c, *stashPendingItem_);
             if (!sanctified) {
                 if (!BeginClipboardTabletRead(c)) {
-                    Stop("Could not safely read the hovered tablet text from the clipboard. No item was clicked."); return;
+                    c->Inventory.Scan(1);
+                    if (stashInventoryId_ > 0) c->Inventory.Scan(stashInventoryId_);
+                    if (now - stashActionAt_ < std::chrono::seconds(3)) {
+                        status_ = "Waiting to inspect tablet text: " + clipboardReadFailure_;
+                        return;
+                    }
+                    const auto reason = "Tablet inspection stopped: " + clipboardReadFailure_ + " No item clicked.";
+                    Stop(reason.c_str()); return;
                 }
                 stashStage_ = StashStage::WaitTabletClipboard; stashActionAt_ = now;
                 status_ = "Checking the tablet text to identify Sanctified items...";
@@ -1587,7 +1607,7 @@ class TabletReforgeController {
             c->Inventory.Scan(1); return;
         }
         if (stashStage_ == StashStage::WaitPull) {
-            const bool inventoryUnchanged = bag == stashExpectedBag_;
+            const bool inventoryUnchanged = SameBagContents(bag, stashExpectedBag_);
             const auto retryUnchangedWithdrawal = [&]() {
                 if (!inventoryUnchanged || stashPullRetries_ != 0 || !stashPendingItem_) return false;
                 const auto page = MatchVisibleStashPage(*stashTargets_, c->Inventory.GetAll(),
@@ -1887,7 +1907,7 @@ public:
             debugStarted_ = Clock::now();
             debugNextSample_ = debugStarted_;
             debugRecording_ = true;
-            debugLog_ << "TabletReforge live debug capture 0.9.6\n"
+            debugLog_ << "TabletReforge live debug capture 0.9.7\n"
                 << "Started manually from Diagnostics. Samples every 500 ms until Stop is pressed.\n";
             status_ = "Debug recording started. Reproduce the issue, then press Stop recording.";
         } catch (...) {
