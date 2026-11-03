@@ -69,13 +69,14 @@ class TabletReforgeController {
     int inputTransferDelayMs_ = 540;
     // Let the reforger finish producing its result before the first pickup click.
     static constexpr int kForgeResultReadyPauseMs = 1700;
-    enum class InputPhase { Idle, MoveAndModifier, ButtonDown, ButtonUp, ModifierUp };
+    enum class InputPhase { Idle, Hover, ModifierDown, ButtonDown, ButtonUp, ModifierUp };
     InputPhase inputPhase_ = InputPhase::Idle;
-    bool ownedCtrl_ = false, ownedButton_ = false;
+    bool ownedCtrl_ = false, ownedButton_ = false, queuedCtrl_ = false;
     Clock::time_point inputDue_{};
     int inputPulseMs_ = 40;
     int activeInputPulseMs_ = 40;
-    static constexpr int kResultClickPulseMs = 40;
+    static constexpr int kNormalClickPulseMs = 40;
+    static constexpr int kHoverBeforeClickMs = 500;
 
 
     bool debugRecording_ = false;
@@ -804,18 +805,18 @@ class TabletReforgeController {
         const int sx = ::GetSystemMetrics(SM_XVIRTUALSCREEN), sy = ::GetSystemMetrics(SM_YVIRTUALSCREEN);
         const int sw = ::GetSystemMetrics(SM_CXVIRTUALSCREEN), sh = ::GetSystemMetrics(SM_CYVIRTUALSCREEN);
         if (sw < 2 || sh < 2 || screen.x < sx || screen.y < sy || screen.x >= sx + sw || screen.y >= sy + sh) return false;
-        INPUT input[2]{};
-        UINT count = 0;
-        input[count].type = INPUT_MOUSE;
-        input[count].mi.dx = static_cast<LONG>((static_cast<double>(screen.x - sx) * 65535.0) / (sw - 1));
-        input[count].mi.dy = static_cast<LONG>((static_cast<double>(screen.y - sy) * 65535.0) / (sh - 1));
-        input[count++].mi.dwFlags = MOUSEEVENTF_MOVE | MOUSEEVENTF_ABSOLUTE | MOUSEEVENTF_VIRTUALDESK;
-        if (ctrl) { input[count].type = INPUT_KEYBOARD; input[count++].ki.wVk = VK_LCONTROL; }
-        ownedCtrl_ = ctrl;
-        if (::SendInput(count, input, sizeof(INPUT)) != count) { ReleaseInput(); return false; }
-        inputPhase_ = InputPhase::MoveAndModifier;
-        activeInputPulseMs_ = pulseMs > 0 ? std::clamp(pulseMs, 12, 40) : inputPulseMs_;
-        inputDue_ = Clock::now() + std::chrono::milliseconds(activeInputPulseMs_);
+        INPUT input{};
+        input.type = INPUT_MOUSE;
+        input.mi.dx = static_cast<LONG>((static_cast<double>(screen.x - sx) * 65535.0) / (sw - 1));
+        input.mi.dy = static_cast<LONG>((static_cast<double>(screen.y - sy) * 65535.0) / (sh - 1));
+        input.mi.dwFlags = MOUSEEVENTF_MOVE | MOUSEEVENTF_ABSOLUTE | MOUSEEVENTF_VIRTUALDESK;
+        if (::SendInput(1, &input, sizeof(INPUT)) != 1) return false;
+        queuedCtrl_ = ctrl; ownedCtrl_ = ownedButton_ = false;
+        inputPhase_ = InputPhase::Hover;
+        // Only inventory-to-bench tablet clicks pass a speed override.
+        // Stash and bench UI clicks keep a steady pulse and hover pause.
+        activeInputPulseMs_ = pulseMs > 0 ? std::clamp(pulseMs, 12, 40) : kNormalClickPulseMs;
+        inputDue_ = Clock::now() + std::chrono::milliseconds(kHoverBeforeClickMs);
         return true;
     }
     void ReleaseInput() {
@@ -826,7 +827,7 @@ class TabletReforgeController {
             release[count++].ki.dwFlags = KEYEVENTF_KEYUP;
         }
         if (count) ::SendInput(count, release, sizeof(INPUT));
-        ownedCtrl_ = ownedButton_ = false; inputPhase_ = InputPhase::Idle;
+        ownedCtrl_ = ownedButton_ = queuedCtrl_ = false; inputPhase_ = InputPhase::Idle;
     }
     bool PumpInput(const PluginSDK::Context* c) {
         if (inputPhase_ == InputPhase::Idle) return false;
@@ -834,8 +835,11 @@ class TabletReforgeController {
         const auto now = Clock::now();
         if (now < inputDue_) return true;
         INPUT event{};
-        if (inputPhase_ == InputPhase::MoveAndModifier) {
-            event.type = INPUT_MOUSE; event.mi.dwFlags = MOUSEEVENTF_LEFTDOWN; ownedButton_ = true;
+        if (inputPhase_ == InputPhase::Hover && queuedCtrl_) {
+            event.type = INPUT_KEYBOARD; event.ki.wVk = VK_LCONTROL;
+            inputPhase_ = InputPhase::ModifierDown;
+        } else if (inputPhase_ == InputPhase::Hover || inputPhase_ == InputPhase::ModifierDown) {
+            event.type = INPUT_MOUSE; event.mi.dwFlags = MOUSEEVENTF_LEFTDOWN;
             inputPhase_ = InputPhase::ButtonDown;
         } else if (inputPhase_ == InputPhase::ButtonDown) {
             event.type = INPUT_MOUSE; event.mi.dwFlags = MOUSEEVENTF_LEFTUP;
@@ -848,8 +852,10 @@ class TabletReforgeController {
             c->Inventory.Scan(1); return true;
         }
         if (::SendInput(1, &event, sizeof(INPUT)) != 1) { Stop("Stopped: a mouse or keyboard event was blocked."); return true; }
+        if (event.type == INPUT_MOUSE && event.mi.dwFlags == MOUSEEVENTF_LEFTDOWN) ownedButton_ = true;
         if (event.type == INPUT_MOUSE && event.mi.dwFlags == MOUSEEVENTF_LEFTUP) ownedButton_ = false;
-        if (event.type == INPUT_KEYBOARD) ownedCtrl_ = false;
+        if (event.type == INPUT_KEYBOARD && event.ki.dwFlags == 0) ownedCtrl_ = true;
+        if (event.type == INPUT_KEYBOARD && (event.ki.dwFlags & KEYEVENTF_KEYUP)) ownedCtrl_ = false;
         inputDue_ = now + std::chrono::milliseconds(activeInputPulseMs_);
         return true;
     }
@@ -1837,7 +1843,7 @@ public:
             const auto current = bag.find(target.address);
             if (item == inv.Items.end() || current == bag.end() || current->second != target || !ReforgeCandidate(current->second, rarityMask, typeRules)) { Stop("Stopped: selected tablet is missing or no longer eligible."); return; }
             const auto rect = ResolveItemRect(inv, *item, HasItemRects(inv), true, static_cast<float>(width_), static_cast<float>(height_));
-            if (!rect || !Click(c, {static_cast<LONG>(rect->x + rect->w / 2), static_cast<LONG>(rect->y + rect->h / 2)}, true)) {
+            if (!rect || !Click(c, {static_cast<LONG>(rect->x + rect->w / 2), static_cast<LONG>(rect->y + rect->h / 2)}, true, inputPulseMs_)) {
                 Stop("Stopped: input was not sent. Release modifier keys and mouse buttons."); return;
             }
             status_ = "Reforging batch " + std::to_string(batch_ + 1) + " / " + std::to_string(batches_.size());
@@ -1860,7 +1866,7 @@ public:
         }
         if (phase_ == Phase::WaitForge) {
             const auto& output = targets_->output;
-            if (bag != expected_ || !Click(c, {static_cast<LONG>(output.CenterX()), static_cast<LONG>(output.CenterY())}, true, kResultClickPulseMs)) {
+            if (bag != expected_ || !Click(c, {static_cast<LONG>(output.CenterX()), static_cast<LONG>(output.CenterY())}, true)) {
                 Stop("Stopped before collecting the result."); return;
             }
             status_ = "Picking up reforge result...";
