@@ -52,6 +52,7 @@ class TabletReforgeController {
     std::unordered_set<uintptr_t> stashSkippedAddresses_;
     int stashUiCategory_ = -1, stashUiPage_ = -1;
     uint64_t stashBagStamp_ = 0;
+    int stashPullRetries_ = 0;
     Clock::time_point stashActionAt_{};
     bool stashFromExhaustion_ = false;
     std::map<uintptr_t, ReforgeItem> expected_;
@@ -1259,14 +1260,40 @@ class TabletReforgeController {
             // the newest unchanged inventory snapshot.
             stashBagStamp_ = snapshot.ScanStamp;
             if (!Click(c, *point, true)) { Stop("Could not safely Ctrl-click a stash tablet."); return; }
-            stashStage_ = StashStage::WaitPull; stashActionAt_ = now;
+            stashStage_ = StashStage::WaitPull; stashPullRetries_ = 0; stashActionAt_ = now;
             status_ = "Withdrawing selected identified tablets from stash...";
             c->Inventory.Scan(1); return;
         }
         if (stashStage_ == StashStage::WaitPull) {
             if (snapshot.ScanStamp == stashBagStamp_) { c->Inventory.Scan(1); return; }
             if (bag.size() != stashExpectedBag_.size() + 1) {
-                Stop("Stash Ctrl-click did not add exactly one inventory item. Check the inventory before restarting."); return;
+                const bool inventoryUnchanged = bag == stashExpectedBag_;
+                if (now - stashActionAt_ < std::chrono::milliseconds(650)) {
+                    c->Inventory.Scan(1);
+                    return;
+                }
+                if (inventoryUnchanged && stashPullRetries_ == 0 && stashPendingItem_) {
+                    const auto page = MatchVisibleStashPage(*stashTargets_, c->Inventory.GetAll(),
+                        TabletCategory(*stashPendingItem_));
+                    const auto stillPresent = std::find_if(page.inventory.Items.begin(), page.inventory.Items.end(),
+                        [&](const auto& entry) { return entry.Address == stashPendingItem_->address; });
+                    const auto retryPoint = stillPresent == page.inventory.Items.end()
+                        ? std::nullopt
+                        : TabletStashSlotCenter(*stashTargets_, stillPresent->SlotX, stillPresent->SlotY);
+                    if (page.state == TabletStashPageMatchState::Matched && retryPoint &&
+                        Click(c, *retryPoint, true)) {
+                        ++stashPullRetries_;
+                        stashBagStamp_ = snapshot.ScanStamp;
+                        stashActionAt_ = now;
+                        status_ = "No inventory change yet; safely retrying the same stash Ctrl-click once...";
+                        c->Inventory.Scan(1);
+                        return;
+                    }
+                }
+                Stop(inventoryUnchanged
+                    ? "Stash Ctrl-click did not transfer the tablet after one safe retry. Check the game input and inventory."
+                    : "Inventory changed unexpectedly during stash withdrawal. Check it before restarting.");
+                return;
             }
             auto additions = bag;
             for (const auto& [address, old] : stashExpectedBag_) {
@@ -1280,7 +1307,7 @@ class TabletReforgeController {
                 Stop("Withdrawn item did not match the identified tablet selected in stash."); return;
             }
             stashSessionAddresses_.insert(additions.begin()->first);
-            stashExpectedBag_ = bag; stashPendingItem_.reset(); stashStage_ = StashStage::ReadPage;
+            stashExpectedBag_ = bag; stashPendingItem_.reset(); stashPullRetries_ = 0; stashStage_ = StashStage::ReadPage;
             stashActionAt_ = now; return;
         }
 
