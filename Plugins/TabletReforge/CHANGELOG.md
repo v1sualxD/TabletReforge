@@ -1,5 +1,11 @@
 # Changelog
 
+## TabletReforge 0.7.6
+
+- Resume stash scanning at the current category and page after each bench trip, preventing an abundant early category from starving later selected categories.
+- Shorten fixed stash interaction waits to speed up tablet withdrawal.
+- Include the selected stash category and page in live debug samples.
+
 ## TabletReforge 0.7.5
 
 - Fixes stash withdrawal when POEFixer does not expose the hovered item tooltip in either UI tree.
