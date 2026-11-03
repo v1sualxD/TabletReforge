@@ -1265,31 +1265,42 @@ class TabletReforgeController {
             c->Inventory.Scan(1); return;
         }
         if (stashStage_ == StashStage::WaitPull) {
-            if (snapshot.ScanStamp == stashBagStamp_) { c->Inventory.Scan(1); return; }
+            const bool inventoryUnchanged = bag == stashExpectedBag_;
+            const auto retryUnchangedWithdrawal = [&]() {
+                if (!inventoryUnchanged || stashPullRetries_ != 0 || !stashPendingItem_) return false;
+                const auto page = MatchVisibleStashPage(*stashTargets_, c->Inventory.GetAll(),
+                    TabletCategory(*stashPendingItem_));
+                const auto stillPresent = std::find_if(page.inventory.Items.begin(), page.inventory.Items.end(),
+                    [&](const auto& entry) { return entry.Address == stashPendingItem_->address; });
+                const auto retryPoint = stillPresent == page.inventory.Items.end()
+                    ? std::nullopt
+                    : TabletStashSlotCenter(*stashTargets_, stillPresent->SlotX, stillPresent->SlotY);
+                if (page.state != TabletStashPageMatchState::Matched || !retryPoint ||
+                    !Click(c, *retryPoint, true)) return false;
+                ++stashPullRetries_;
+                stashBagStamp_ = snapshot.ScanStamp;
+                stashActionAt_ = now;
+                status_ = "No inventory change yet; safely retrying the same stash Ctrl-click once...";
+                c->Inventory.Scan(1);
+                return true;
+            };
+            if (snapshot.ScanStamp == stashBagStamp_) {
+                if (now - stashActionAt_ < std::chrono::milliseconds(650)) { c->Inventory.Scan(1); return; }
+                if (retryUnchangedWithdrawal()) return;
+                if (stashPullRetries_ == 0 && now - stashActionAt_ < std::chrono::milliseconds(2500)) {
+                    status_ = "Waiting for POEFixer to confirm the stash withdrawal...";
+                    c->Inventory.Scan(1);
+                    return;
+                }
+                Stop("Stash withdrawal was not confirmed after the safe retry. Check the inventory before restarting.");
+                return;
+            }
             if (bag.size() != stashExpectedBag_.size() + 1) {
-                const bool inventoryUnchanged = bag == stashExpectedBag_;
                 if (now - stashActionAt_ < std::chrono::milliseconds(650)) {
                     c->Inventory.Scan(1);
                     return;
                 }
-                if (inventoryUnchanged && stashPullRetries_ == 0 && stashPendingItem_) {
-                    const auto page = MatchVisibleStashPage(*stashTargets_, c->Inventory.GetAll(),
-                        TabletCategory(*stashPendingItem_));
-                    const auto stillPresent = std::find_if(page.inventory.Items.begin(), page.inventory.Items.end(),
-                        [&](const auto& entry) { return entry.Address == stashPendingItem_->address; });
-                    const auto retryPoint = stillPresent == page.inventory.Items.end()
-                        ? std::nullopt
-                        : TabletStashSlotCenter(*stashTargets_, stillPresent->SlotX, stillPresent->SlotY);
-                    if (page.state == TabletStashPageMatchState::Matched && retryPoint &&
-                        Click(c, *retryPoint, true)) {
-                        ++stashPullRetries_;
-                        stashBagStamp_ = snapshot.ScanStamp;
-                        stashActionAt_ = now;
-                        status_ = "No inventory change yet; safely retrying the same stash Ctrl-click once...";
-                        c->Inventory.Scan(1);
-                        return;
-                    }
-                }
+                if (retryUnchangedWithdrawal()) return;
                 Stop(inventoryUnchanged
                     ? "Stash Ctrl-click did not transfer the tablet after one safe retry. Check the game input and inventory."
                     : "Inventory changed unexpectedly during stash withdrawal. Check it before restarting.");
