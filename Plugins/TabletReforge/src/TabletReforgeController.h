@@ -53,7 +53,7 @@ class TabletReforgeController {
     int stashUiCategory_ = -1, stashUiPage_ = -1;
     uint64_t stashBagStamp_ = 0;
     int stashPullRetries_ = 0;
-    Clock::time_point stashActionAt_{};
+    Clock::time_point stashActionAt_{}, stashPageRefreshAt_{};
     bool stashFromExhaustion_ = false;
     std::map<uintptr_t, ReforgeItem> expected_;
     std::vector<ReforgeBatch> batches_;
@@ -1097,14 +1097,21 @@ class TabletReforgeController {
             stashStage_ == StashStage::Deposit || stashStage_ == StashStage::WaitDeposit) {
             // Refresh the grid and occupied cells while reading a page. POEFixer's
             // inventory enumeration can temporarily omit Grid.Valid after a page switch.
-            const bool refreshPage = stashStage_ == StashStage::ReadPage;
-            if ((refreshPage || !stashTargets_) && !AttachTabletStash(c, directory, false)) {
-                if (refreshPage && now - stashActionAt_ < std::chrono::milliseconds(1800)) {
-                    status_ = "Waiting for the selected Tablet stash page to finish updating...";
-                    c->Inventory.Scan(1);
-                    return;
+            const bool refreshPage = stashStage_ == StashStage::ReadPage &&
+                (stashPageRefreshAt_ == Clock::time_point{} ||
+                    now - stashPageRefreshAt_ >= std::chrono::milliseconds(400));
+            if (refreshPage || !stashTargets_) {
+                const bool attached = AttachTabletStash(c, directory, false);
+                if (refreshPage) stashPageRefreshAt_ = now;
+                if (!attached) {
+                    if (stashStage_ == StashStage::ReadPage &&
+                        now - stashActionAt_ < std::chrono::milliseconds(2200)) {
+                        status_ = "Waiting for the selected Tablet stash page to finish updating...";
+                        c->Inventory.Scan(1);
+                        return;
+                    }
+                    Stop("Tablet stash controls changed or could not be identified. No further clicks sent."); return;
                 }
-                Stop("Tablet stash controls changed or could not be identified. No further clicks sent."); return;
             }
         }
         const auto snapshot = c->Inventory.ReadSnapshot(1);
