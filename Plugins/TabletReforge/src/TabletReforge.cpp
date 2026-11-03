@@ -38,9 +38,9 @@ uint8_t MakeRarityMask(bool magic, bool rare) {
 POEFIXER_PLUGIN_INFO(
     "TabletReforge",
     "Tablet Reforge",
-    "0.9.1",
+    "0.9.3",
     "TabletReforge contributors; Omer Faruk ARPA; POEFixer",
-    "Read empty pages independently of the player bag grid; confirm them for 1.5 seconds and retry transient hover failures without sending a click.")
+    "Fix reforge transfer tracking across POEFixer inventory rescans; make stash tablet pickup hover about 20% faster.")
 
 class TabletReforgePlugin : public PluginSDK::Plugin {
     TabletHelper::TabletReforgeController controller_;
