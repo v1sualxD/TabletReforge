@@ -1,0 +1,45 @@
+name: Build and publish TabletReforge v0.9.10
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/publish-v0.9.10.yml'
+permissions:
+  contents: write
+jobs:
+  build-and-release:
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+      - name: Compile plugin and run tests
+        shell: pwsh
+        run: |
+          $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+          $vs = & $vswhere -latest -products '*' -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
+          if (!$vs) { throw 'Visual C++ build tools missing' }
+          & "$vs\MSBuild\Current\Bin\MSBuild.exe" TabletReforge.sln /m /p:Configuration=Release /p:Platform=x64
+          if ($LASTEXITCODE -ne 0) { throw 'Plugin build failed' }
+          $devcmd = "$vs\Common7\Tools\VsDevCmd.bat"
+          foreach ($test in @('ReforgePlanTests', 'SelectionTests')) {
+            $command = '"' + $devcmd + '" -arch=x64 -host_arch=x64 && cl /nologo /std:c++20 /EHsc /W4 /Fe:' + $test + '.exe tests\' + $test + '.cpp'
+            & cmd.exe /d /s /c $command
+            if ($LASTEXITCODE -ne 0) { throw "$test compile failed" }
+            for ($pass = 1; $pass -le 20; $pass++) {
+              & ".\$test.exe"
+              if ($LASTEXITCODE -ne 0) { throw "$test failed on verification pass $pass" }
+            }
+          }
+      - name: Package plugin
+        shell: pwsh
+        run: |
+          $destination = 'package/Plugins/TabletReforge'
+          New-Item -ItemType Directory -Force $destination | Out-Null
+          Copy-Item x64/Release/Plugins/TabletReforge/TabletReforge.dll $destination
+          Copy-Item LICENSE, README.md $destination
+          Compress-Archive -Path package/Plugins -DestinationPath TabletReforge.zip
+      - name: Publish GitHub release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create v0.9.10 TabletReforge.zip --title "TabletReforge v0.9.10" --notes "Moves Start automatic cycle beside a persisted Enabled control at the top. Renames the category section Tablets to reforge, improves spacing and control styling, and removes obsolete highlight work. Optimizes unchanged inventory comparisons while retaining the property-matching fallback. Includes faster stash withdrawal timing and removal of rarity settings and type highlights."
