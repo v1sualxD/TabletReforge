@@ -38,9 +38,9 @@ uint8_t MakeRarityMask(bool magic, bool rare) {
 POEFIXER_PLUGIN_INFO(
     "TabletReforge",
     "Tablet Reforge",
-    "0.8.3",
+    "0.8.4",
     "TabletReforge contributors; Omer Faruk ARPA; POEFixer",
-    "Reforge identified tablet trios with Ctrl-click quick transfers for results and stash items, with result verification and a 0-50 transfer speed setting.")
+    "Reforge identified tablet trios with verified Ctrl-click transfers, fixed 500 ms hover-before-click timing, and 0-50 speed for inventory-to-bench transfers only.")
 
 class TabletReforgePlugin : public PluginSDK::Plugin {
     TabletHelper::TabletReforgeController controller_;
@@ -149,6 +149,7 @@ public:
 
         ImGui::BeginDisabled(controller_.Busy() || controller_.StashCycleActive());
         if (ImGui::SliderInt("Transfer speed (0 = slowest)", &executionSpeed_, 0, 50)) SaveSettings();
+        ImGui::TextDisabled("Speed affects inventory-to-bench transfers only. Stash and bench clicks hover for 500 ms and use fixed timing.");
         if (ImGui::SliderInt("Minimum uses to process", &minimumUses_, 1, 10)) {
             for (auto& type : types_)
                 if (type.key != TabletHelper::TypeKeys::Global) type.minUsesLeft = minimumUses_;
