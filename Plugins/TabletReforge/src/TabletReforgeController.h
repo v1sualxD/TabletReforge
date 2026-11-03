@@ -54,7 +54,7 @@ class TabletReforgeController {
     int stashInventoryId_ = 0;
     uint64_t stashBagStamp_ = 0;
     std::optional<PluginSDK::Inventory> stashPageInventorySnapshot_;
-    int stashPullRetries_ = 0;
+    int stashPullRetries_ = 0, stashDepositRetries_ = 0;
     int stashEmptyConfirmCategory_ = -1, stashEmptyConfirmPage_ = -1;
     Clock::time_point stashEmptyConfirmAt_{};
     Clock::time_point stashActionAt_{}, stashPageRefreshAt_{};
@@ -1656,30 +1656,38 @@ class TabletReforgeController {
         if (stashStage_ == StashStage::Deposit || stashStage_ == StashStage::WaitDeposit) {
             if (!stashDepositInit_) { stashExpectedBag_ = bag; stashDepositInit_ = true; }
             if (stashStage_ == StashStage::WaitDeposit) {
-                if (snapshot.ScanStamp == stashBagStamp_) {
-                    if (now - stashActionAt_ < std::chrono::milliseconds(2250)) {
-                        c->Inventory.Scan(1); return;
-                    }
-                    Stop("Stash Ctrl-click did not return the tablet. Check the stash and inventory before restarting.");
-                    return;
-                }
-                if (bag.size() + 1 != stashExpectedBag_.size()) {
-                    Stop("Stash deposit did not remove exactly one inventory item."); return;
-                }
-                auto remaining = stashExpectedBag_;
+                auto desired = stashExpectedBag_;
                 const auto address = *stashDepositItem_;
-                if (remaining.erase(address) != 1 || remaining.size() != bag.size()) {
-                    Stop("Unexpected inventory change during stash deposit."); return;
-                }
-                for (const auto& [itemAddress, identity] : remaining) {
-                    const auto it = bag.find(itemAddress);
-                    if (it == bag.end() || it->second != identity) {
-                        Stop("Inventory changed during stash deposit."); return;
+                const auto selected = desired.find(address);
+                if (selected == desired.end()) { Stop("Missing pending inventory tablet during deposit."); return; }
+                desired.erase(selected);
+                const bool fresh = snapshot.ScanStamp != stashBagStamp_;
+                if (fresh && SameBagContents(bag, desired)) {
+                    stashSessionAddresses_.erase(address);
+                    stashExpectedBag_ = bag; stashDepositItem_.reset(); stashStage_ = StashStage::Deposit;
+                    stashActionAt_ = now;
+                    status_ = "Returning inventory tablets to stash...";
+                } else {
+                    // A newer scan may still precede the queued click/server update.
+                    // Do not reject an unchanged bag or click the next tablet yet.
+                    c->Inventory.Scan(1);
+                    if (now - stashActionAt_ < std::chrono::milliseconds(2250)) return;
+                    if (fresh && SameBagContents(bag, stashExpectedBag_) && stashDepositRetries_ == 0) {
+                        const auto pending = std::find_if(snapshot.Value.Items.begin(), snapshot.Value.Items.end(),
+                            [&](const auto& entry) { return entry.Address == address; });
+                        if (pending != snapshot.Value.Items.end() && inputPhase_ == InputPhase::Idle) {
+                            const auto rect = ResolveItemRect(snapshot.Value, *pending, HasItemRects(snapshot.Value), true,
+                                static_cast<float>(width_), static_cast<float>(height_));
+                            if (rect && Click(c, {static_cast<LONG>(rect->x + rect->w / 2),
+                                static_cast<LONG>(rect->y + rect->h / 2)}, true)) {
+                                ++stashDepositRetries_; stashBagStamp_ = snapshot.ScanStamp; stashActionAt_ = now;
+                                status_ = "Retrying the unchanged inventory tablet deposit once...";
+                                return;
+                            }
+                        }
                     }
+                    Stop("Stash deposit was not confirmed. Check stash capacity and the inventory."); return;
                 }
-                stashSessionAddresses_.erase(address);
-                stashExpectedBag_ = bag; stashDepositItem_.reset(); stashStage_ = StashStage::Deposit;
-                stashActionAt_ = now;
             }
 
             const auto tablet = std::find_if(snapshot.Value.Items.begin(), snapshot.Value.Items.end(), [&](const auto& entry) {
@@ -1720,6 +1728,8 @@ class TabletReforgeController {
                 static_cast<LONG>(rect->y + rect->h / 2)}, true)) {
                 Stop("Could not safely Ctrl-click an inventory tablet into the Tablet stash."); return;
             }
+            stashDepositRetries_ = 0;
+            status_ = "Returning inventory tablets to stash (" + std::to_string(bag.size()) + " inventory items remaining)...";
             stashExpectedBag_ = bag; stashDepositItem_ = tablet->Address; stashBagStamp_ = snapshot.ScanStamp;
             stashStage_ = StashStage::WaitDeposit; stashActionAt_ = now; c->Inventory.Scan(1); return;
         }
@@ -1877,7 +1887,7 @@ public:
             debugStarted_ = Clock::now();
             debugNextSample_ = debugStarted_;
             debugRecording_ = true;
-            debugLog_ << "TabletReforge live debug capture 0.9.4\n"
+            debugLog_ << "TabletReforge live debug capture 0.9.5\n"
                 << "Started manually from Diagnostics. Samples every 500 ms until Stop is pressed.\n";
             status_ = "Debug recording started. Reproduce the issue, then press Stop recording.";
         } catch (...) {
