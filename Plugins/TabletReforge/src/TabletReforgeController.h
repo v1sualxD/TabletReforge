@@ -67,6 +67,9 @@ class TabletReforgeController {
     }
     static constexpr int kActionDelayMs = 540;
     int inputTransferDelayMs_ = 540;
+    // Let the reforger finish producing its result before the first pickup click.
+    static constexpr int kForgeResultReadyPauseMs = 1700;
+    // Allow the picked-up result to settle before placing it in the inventory.
     static constexpr int kResultPickupPauseMs = 1700;
     enum class InputPhase { Idle, MoveAndModifier, ButtonDown, ButtonUp, ModifierUp };
     InputPhase inputPhase_ = InputPhase::Idle;
@@ -1795,8 +1798,9 @@ public:
         if (!Ready(c)) { Stop("Stopped: bench closed, moved, resized, or another automation started."); return; }
         if (now > deadline_) { Stop("Stopped: no confirmation within 6 seconds. Check the bench before restarting."); return; }
         const int phaseDelayMs = phase_ == Phase::PlaceResult ? kResultPickupPauseMs
-            : ((phase_ == Phase::Transfer || phase_ == Phase::WaitTransfer)
-                ? inputTransferDelayMs_ : kActionDelayMs);
+            : (phase_ == Phase::WaitForge ? kForgeResultReadyPauseMs
+                : ((phase_ == Phase::Transfer || phase_ == Phase::WaitTransfer)
+                    ? inputTransferDelayMs_ : kActionDelayMs));
         if (now - actionAt_ < std::chrono::milliseconds(phaseDelayMs)) return;
         const auto snapshot = c->Inventory.ReadSnapshot(1);
         if (!snapshot.Ready || snapshot.ScanStamp == stamp_) return;
