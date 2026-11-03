@@ -397,19 +397,20 @@ class TabletReforgeController {
                 << "," << player.Value.Grid.GridScreenY << "," << player.Value.Grid.CellSize
                 << " size=" << player.Value.TotalBoxesX << "x" << player.Value.TotalBoxesY
                 << " items=" << player.Value.Items.size()
-                << " has_free_cell=" << (player.Ready && FirstFreeInventoryCell(player.Value).has_value()) << "\\n";
+                << " has_free_cell=" << (player.Ready && FirstFreeInventoryCell(player.Value).has_value()) << "\n";
             if (stashTargets_) {
                 debugLog_ << "tablet_stash_ui_grid=" << stashTargets_->grid.x << "," << stashTargets_->grid.y
                     << " size=" << stashTargets_->grid.w << "x" << stashTargets_->grid.h
                     << " cell=" << stashTargets_->cellSize
-                    << " occupied_slots=" << stashTargets_->occupiedSlots.size() << "\\n";
+                    << " occupied_slots=" << stashTargets_->occupiedSlots.size() << "\n";
             }
             const auto tabs = c->Game.EnumerateStashTabs(PluginSDK::StashDomain::Own);
             debugLog_ << "stash_open=" << tabs.IsOpen() << " stash_status=" << tabs.Status << " active_tabs=";
             for (const auto& tab : tabs.Tabs)
                 if (tab.IsActive == 1) debugLog_ << "[" << tab.Index << ":" << tab.Name << "]";
             debugLog_ << "\n";
-            for (const auto& inv : c->Inventory.GetAll()) {
+            const auto inventories = c->Inventory.GetAll();
+            for (const auto& inv : inventories) {
                 size_t tabletCount = 0;
                 for (const auto& item : inv.Items)
                     if (LooksLikeTablet(item.Path, item.BaseTypeName)) ++tabletCount;
@@ -426,6 +427,13 @@ class TabletReforgeController {
                         << " category=[" << ClassifyFromText(item.Path, item.BaseTypeName) << "]"
                         << " base=[" << item.BaseTypeName << "] path=[" << item.Path << "]\n";
                 }
+            }
+            if (stashTargets_ && stashCategory_ < stashCategories_.size()) {
+                const auto match = MatchVisibleStashPage(*stashTargets_, inventories, stashCategories_[stashCategory_]);
+                debugLog_ << "stash_page_match category=[" << stashCategories_[stashCategory_]
+                    << "] ui_occupied=" << stashTargets_->occupiedSlots.size()
+                    << " state=" << static_cast<int>(match.state)
+                    << " inventory_id=" << match.inventory.InventoryId << "\n";
             }
             std::vector<BenchNode> nodes;
             int budget = 2000;
