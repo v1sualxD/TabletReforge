@@ -77,6 +77,10 @@ class TabletReforgeController {
     int activeInputPulseMs_ = 40;
     static constexpr int kNormalClickPulseMs = 40;
     static constexpr int kHoverBeforeClickMs = 500;
+    enum class WorldClickPhase { Idle, Hover, ButtonDown };
+    WorldClickPhase worldClickPhase_ = WorldClickPhase::Idle;
+    POINT worldClickScreen_{};
+    Clock::time_point worldClickDue_{};
 
 
     bool debugRecording_ = false;
@@ -593,6 +597,49 @@ class TabletReforgeController {
     bool TabletStashPanelOpen(const PluginSDK::Context* c) const {
         return c->Game.EnumerateStashTabs(PluginSDK::StashDomain::Own).IsOpen();
     }
+    void ReleaseWorldClick() {
+        if (worldClickPhase_ == WorldClickPhase::ButtonDown) {
+            INPUT release{}; release.type = INPUT_MOUSE; release.mi.dwFlags = MOUSEEVENTF_LEFTUP;
+            ::SendInput(1, &release, sizeof(INPUT));
+        }
+        worldClickPhase_ = WorldClickPhase::Idle;
+    }
+    bool PumpWorldClick(const PluginSDK::Context* c) {
+        if (worldClickPhase_ == WorldClickPhase::Idle) return false;
+        const HWND gameWindow = c ? c->Game.GetGameWindow() : nullptr;
+        if (!c || !Foreground(c) || !gameWindow || gameWindow != window_ ||
+            c->Game.GetAreaChangeCounter() != area_ || c->Game.IsHostAutomationActive()) {
+            Stop("Stopped: game focus changed while waiting to click the stash or bench."); return true;
+        }
+        for (int key : {VK_CONTROL, VK_SHIFT, VK_MENU, VK_LWIN, VK_RWIN, VK_LBUTTON, VK_RBUTTON})
+            if (::GetAsyncKeyState(key) & 0x8000) {
+                Stop("Stopped: a key or mouse button was held during the world click."); return true;
+            }
+        POINT cursor{};
+        if (!::GetCursorPos(&cursor) || std::abs(cursor.x - worldClickScreen_.x) > 2 ||
+            std::abs(cursor.y - worldClickScreen_.y) > 2) {
+            Stop("Stopped: cursor moved before the stash or bench click."); return true;
+        }
+        const auto now = Clock::now();
+        if (now < worldClickDue_) return true;
+        if (worldClickPhase_ == WorldClickPhase::Hover) {
+            INPUT press{}; press.type = INPUT_MOUSE; press.mi.dwFlags = MOUSEEVENTF_LEFTDOWN;
+            if (::SendInput(1, &press, sizeof(INPUT)) != 1) {
+                Stop("Stopped: the stash or bench click was blocked."); return true;
+            }
+            worldClickPhase_ = WorldClickPhase::ButtonDown;
+            worldClickDue_ = now + std::chrono::milliseconds(kNormalClickPulseMs);
+            return true;
+        }
+        INPUT release{}; release.type = INPUT_MOUSE; release.mi.dwFlags = MOUSEEVENTF_LEFTUP;
+        if (::SendInput(1, &release, sizeof(INPUT)) != 1) {
+            Stop("Stopped: the stash or bench click could not be released."); return true;
+        }
+        worldClickPhase_ = WorldClickPhase::Idle;
+        stashActionAt_ = now;
+        c->Inventory.Scan(1);
+        return true;
+    }
     bool ClickWorldPoint(const PluginSDK::Context* c, POINT point) {
         if (!Foreground(c) || c->Game.IsHostAutomationActive()) return false;
         HWND gameWindow = c->Game.GetGameWindow();
@@ -607,14 +654,16 @@ class TabletReforgeController {
         const int sw = ::GetSystemMetrics(SM_CXVIRTUALSCREEN), sh = ::GetSystemMetrics(SM_CYVIRTUALSCREEN);
         if (sw < 2 || sh < 2 || screen.x < sx || screen.y < sy || screen.x >= sx + sw || screen.y >= sy + sh)
             return false;
-        INPUT input[3]{};
-        input[0].type = INPUT_MOUSE;
-        input[0].mi.dx = static_cast<LONG>((static_cast<double>(screen.x - sx) * 65535.0) / (sw - 1));
-        input[0].mi.dy = static_cast<LONG>((static_cast<double>(screen.y - sy) * 65535.0) / (sh - 1));
-        input[0].mi.dwFlags = MOUSEEVENTF_MOVE | MOUSEEVENTF_ABSOLUTE | MOUSEEVENTF_VIRTUALDESK;
-        input[1].type = INPUT_MOUSE; input[1].mi.dwFlags = MOUSEEVENTF_LEFTDOWN;
-        input[2].type = INPUT_MOUSE; input[2].mi.dwFlags = MOUSEEVENTF_LEFTUP;
-        return ::SendInput(3, input, sizeof(INPUT)) == 3;
+        if (worldClickPhase_ != WorldClickPhase::Idle || inputPhase_ != InputPhase::Idle) return false;
+        INPUT input{}; input.type = INPUT_MOUSE;
+        input.mi.dx = static_cast<LONG>((static_cast<double>(screen.x - sx) * 65535.0) / (sw - 1));
+        input.mi.dy = static_cast<LONG>((static_cast<double>(screen.y - sy) * 65535.0) / (sh - 1));
+        input.mi.dwFlags = MOUSEEVENTF_MOVE | MOUSEEVENTF_ABSOLUTE | MOUSEEVENTF_VIRTUALDESK;
+        if (::SendInput(1, &input, sizeof(INPUT)) != 1) return false;
+        worldClickScreen_ = screen;
+        worldClickPhase_ = WorldClickPhase::Hover;
+        worldClickDue_ = Clock::now() + std::chrono::milliseconds(kHoverBeforeClickMs);
+        return true;
     }
     bool PressEscape(const PluginSDK::Context* c) {
         if (!Foreground(c) || c->Game.IsHostAutomationActive() ||
@@ -930,6 +979,7 @@ class TabletReforgeController {
             stashStage_ == StashStage::WaitTabletClipboard || stashStage_ == StashStage::Deposit ||
             stashStage_ == StashStage::WaitDeposit;
         if (PumpInput(c)) return;
+        if (PumpWorldClick(c)) return;
 
         const auto now = Clock::now();
         if (now - stashActionAt_ < std::chrono::milliseconds(120)) return;
@@ -1687,7 +1737,7 @@ public:
             else { clipboardBackup_.clear(); clipboardSnapshotValid_ = false; }
         }
         clipboardVerified_ = false;
-        ReleaseInput(); phase_ = Phase::Idle; pending_ = false; targets_.reset(); stashTargets_.reset();
+        ReleaseInput(); ReleaseWorldClick(); phase_ = Phase::Idle; pending_ = false; targets_.reset(); stashTargets_.reset();
         stashCycle_ = false; stashInputMode_ = false; stashStage_ = StashStage::Idle;
         stashInventorySeeded_ = false;
         stashPendingItem_.reset(); status_ = reason;
