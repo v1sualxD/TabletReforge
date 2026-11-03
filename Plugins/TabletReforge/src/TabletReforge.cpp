@@ -36,7 +36,7 @@ bool ReadBool(const nlohmann::json& settings, const char* key, bool fallback) {
 POEFIXER_PLUGIN_INFO(
     "TabletReforge",
     "Tablet Reforge",
-    "1.0.1",
+    "1.0.2",
     "TabletReforge contributors; Omer Faruk ARPA; POEFixer",
     "Confirm each inventory tablet Ctrl-click before depositing the next tablet into stash.")
 
@@ -44,7 +44,6 @@ class TabletReforgePlugin : public PluginSDK::Plugin {
     TabletHelper::TabletReforgeController controller_;
     bool allTablets_ = true;
     bool running_ = false;
-    bool automationEnabled_ = true;
     int executionSpeed_ = 15;
     int minimumUses_ = 1;
     std::vector<TypeConfig> types_ = AllTabletTypes();
@@ -68,7 +67,6 @@ public:
                 const auto settings = nlohmann::json::parse(file, nullptr, false);
                 if (settings.is_object()) {
                     allTablets_ = ReadBool(settings, "all_tablets", allTablets_);
-                    automationEnabled_ = ReadBool(settings, "automation_enabled", true);
                     if (settings.contains("execution_speed") && settings["execution_speed"].is_number_integer())
                         executionSpeed_ = std::clamp(settings["execution_speed"].get<int>(), 0, 50);
 
@@ -100,7 +98,6 @@ public:
             std::ofstream file(temporary, std::ios::binary | std::ios::trunc);
             nlohmann::json settings{
                 {"all_tablets", allTablets_},
-                {"automation_enabled", automationEnabled_},
                 {"execution_speed", executionSpeed_},
                 {"minimum_uses", minimumUses_}
             };
@@ -125,12 +122,7 @@ public:
 
         ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 5.0f);
         ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(10, 8));
-        if (ImGui::Checkbox("Enabled", &automationEnabled_)) {
-            if (!automationEnabled_) controller_.Stop("Automation disabled.");
-            SaveSettings();
-        }
-        ImGui::SameLine(0, 20);
-        ImGui::BeginDisabled(controller_.Busy() || !automationEnabled_);
+        ImGui::BeginDisabled(controller_.Busy());
         if (ImGui::Button("Start automatic cycle", ImVec2(220, 32))) {
             const int speed = std::clamp(executionSpeed_, 0, 50);
             const int transferDelayMs = speed <= 10
@@ -227,7 +219,7 @@ public:
 
         ImGui::Separator();
         if (ImGui::CollapsingHeader("Diagnostics")) {
-            ImGui::TextWrapped("Capture a report after an error, with the relevant game panel open. It records the current status, inventory, stash controls, visible UI and world entity paths.");
+            ImGui::TextWrapped("Start recording, reproduce the issue, then stop recording. The debug file includes status, inventory and UI data.");
             if (!controller_.DebugCaptureActive()) {
                 if (ImGui::Button("Start debug recording", ImVec2(210, 30)))
                     controller_.StartDebugCapture(DirectoryPath());
@@ -238,9 +230,6 @@ public:
                 ImGui::TextColored(ImVec4(0.3f, 0.9f, 0.4f, 1.0f), "Recording");
             }
             ImGui::TextDisabled("Live capture: config/tablet-reforge-live-debug.txt (samples every 500 ms).");
-            if (ImGui::Button("Capture diagnostic report", ImVec2(210, 30)))
-                controller_.CaptureStashDiagnostics(ctx(), DirectoryPath());
-            ImGui::TextDisabled("Snapshot: config/tablet-reforge-diagnostics.txt.");
         }
 
         ImGui::PopStyleVar(2);
@@ -250,7 +239,7 @@ public:
     void DrawUI() override {
         if (!running_ || !ctx()->ImGuiContext) return;
         ImGui::SetCurrentContext(static_cast<ImGuiContext*>(ctx()->ImGuiContext));
-        if (automationEnabled_) controller_.Tick(ctx(), true, RarityMask(), types_, DirectoryPath());
+        controller_.Tick(ctx(), true, RarityMask(), types_, DirectoryPath());
         if (!ctx()->Game.IsInGame() || !ctx()->Game.IsForeground()) return;
         ImGui::SetNextWindowPos(ImVec2(12, 12), ImGuiCond_Always);
         ImGui::Begin("Tablet Reforge status", nullptr, ImGuiWindowFlags_AlwaysAutoResize |
