@@ -68,7 +68,7 @@ class TabletReforgeController {
         return std::clamp((bounded * 10 + 6) / 13, 10, 1900);
     }
     static constexpr int kActionDelayMs = 486;
-    int inputTransferDelayMs_ = 540;
+    int inputTransferDelayMs_ = 486;
     // Let the reforger finish producing its result before the first pickup click.
     static constexpr int kForgeResultReadyPauseMs = 1615;
     enum class InputPhase { Idle, Hover, ModifierDown, ButtonDown, ButtonUp, ModifierUp };
@@ -1031,7 +1031,7 @@ class TabletReforgeController {
             return;
         }
         if (stashStage_ == StashStage::CloseBenchForStash) {
-            if (now - stashActionAt_ < std::chrono::milliseconds(500)) return;
+            if (now - stashActionAt_ < std::chrono::milliseconds(450)) return;
             stashActionAt_ = now;
             if (BenchPanelVisible(c)) {
                 if (!PressEscape(c)) { status_ = "Waiting to close the Reforging Bench safely..."; return; }
@@ -1040,7 +1040,7 @@ class TabletReforgeController {
             stashStage_ = StashStage::FindStash;
         }
         if (stashStage_ == StashStage::WaitBenchClosed) {
-            if (now - stashActionAt_ < std::chrono::milliseconds(500)) return;
+            if (now - stashActionAt_ < std::chrono::milliseconds(450)) return;
             stashActionAt_ = now;
             if (BenchPanelVisible(c)) return;
             targets_.reset(); stashStage_ = StashStage::FindStash; stashActionAt_ = now;
@@ -1058,7 +1058,7 @@ class TabletReforgeController {
         if (stashStage_ == StashStage::WaitStashOpen) {
             // Initial interaction can send the character toward the stash. Wait for
             // that approach, then retry only if POEFixer still reports it closed.
-            if (now - stashActionAt_ < std::chrono::milliseconds(1400)) return;
+            if (now - stashActionAt_ < std::chrono::milliseconds(1260)) return;
             const auto tabs = c->Game.EnumerateStashTabs(PluginSDK::StashDomain::Own);
             if (!tabs.IsOpen()) {
                 const auto point = FindOwnStashScreenPoint(c);
@@ -1178,7 +1178,7 @@ class TabletReforgeController {
             stashInputMode_ = true; stashTabSelected_ = false; stashUiCategory_ = stashUiPage_ = -1;
             stashStage_ = StashStage::NavigateTab; stashActionAt_ = now;
         }
-        if (now - stashActionAt_ < std::chrono::milliseconds(120)) return;
+        if (now - stashActionAt_ < std::chrono::milliseconds(108)) return;
 
         if (stashStage_ == StashStage::NavigateTab || stashStage_ == StashStage::NavigateCategory ||
             stashStage_ == StashStage::NavigatePage || stashStage_ == StashStage::ReadPage ||
@@ -1262,6 +1262,8 @@ class TabletReforgeController {
             }
             const auto match = MatchVisibleStashPage(*stashTargets_, c->Inventory.GetAll(), stashCategories_[stashCategory_]);
             if (match.state == TabletStashPageMatchState::Ambiguous || match.state == TabletStashPageMatchState::Missing) {
+                stashEmptyConfirmCategory_ = stashEmptyConfirmPage_ = -1;
+                stashEmptyConfirmAt_ = {};
                 if (now - stashActionAt_ < std::chrono::milliseconds(1620)) {
                     status_ = match.state == TabletStashPageMatchState::Ambiguous
                         ? "Waiting for POEFixer to publish one unambiguous Tablet stash page..."
@@ -1448,12 +1450,12 @@ class TabletReforgeController {
                 return;
             }
             if (bag.size() != stashExpectedBag_.size() + 1) {
-                if (now - stashActionAt_ < std::chrono::milliseconds(650)) {
+                if (now - stashActionAt_ < std::chrono::milliseconds(585)) {
                     c->Inventory.Scan(1);
                     return;
                 }
                 if (retryUnchangedWithdrawal()) return;
-                if (now - stashActionAt_ < std::chrono::milliseconds(2500)) {
+                if (now - stashActionAt_ < std::chrono::milliseconds(2250)) {
                     status_ = "Waiting for POEFixer to confirm the stash withdrawal...";
                     c->Inventory.Scan(1);
                     return;
