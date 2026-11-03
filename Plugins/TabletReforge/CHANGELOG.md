@@ -1,5 +1,10 @@
 # Changelog
 
+## TabletReforge 0.7.7
+
+- Wait 1.7 seconds before collecting a reforging result, giving the result time to settle.
+- Includes the 0.7.6 fixes for resuming multi-category stash scans and faster stash withdrawals.
+
 ## TabletReforge 0.7.6
 
 - Resume stash scanning at the current category and page after each bench trip, preventing an abundant early category from starving later selected categories.
