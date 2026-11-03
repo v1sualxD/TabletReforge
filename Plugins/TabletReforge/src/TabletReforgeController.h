@@ -64,7 +64,7 @@ class TabletReforgeController {
     }
     static constexpr int kActionDelayMs = 540;
     int inputTransferDelayMs_ = 540;
-    static constexpr int kResultPickupPauseMs = 540;
+    static constexpr int kResultPickupPauseMs = 1700;
     enum class InputPhase { Idle, MoveAndModifier, ButtonDown, ButtonUp, ModifierUp };
     InputPhase inputPhase_ = InputPhase::Idle;
     bool ownedCtrl_ = false, ownedButton_ = false;
@@ -1484,7 +1484,7 @@ public:
             debugStarted_ = Clock::now();
             debugNextSample_ = debugStarted_;
             debugRecording_ = true;
-            debugLog_ << "TabletReforge live debug capture 0.7.6\n"
+            debugLog_ << "TabletReforge live debug capture 0.7.7\n"
                 << "Started manually from Diagnostics. Samples every 500 ms until Stop is pressed.\n";
             status_ = "Debug recording started. Reproduce the issue, then press Stop recording.";
         } catch (...) {
