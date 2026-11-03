@@ -38,9 +38,9 @@ uint8_t MakeRarityMask(bool magic, bool rare) {
 POEFIXER_PLUGIN_INFO(
     "TabletReforge",
     "Tablet Reforge",
-    "0.9.3",
+    "0.9.4",
     "TabletReforge contributors; Omer Faruk ARPA; POEFixer",
-    "Fix reforge transfer tracking across POEFixer inventory rescans; make stash tablet pickup hover about 20% faster.")
+    "Preserve tablet metadata across unavailable SDK reads, settle transfer snapshots, and record exact transfer differences.")
 
 class TabletReforgePlugin : public PluginSDK::Plugin {
     TabletHelper::TabletReforgeController controller_;
