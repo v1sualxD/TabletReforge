@@ -1798,7 +1798,7 @@ public:
         clipboardVerified_ = false;
         ReleaseInput(); ReleaseWorldClick(); phase_ = Phase::Idle; pending_ = false; targets_.reset(); stashTargets_.reset();
         stashCycle_ = false; stashInputMode_ = false; stashStage_ = StashStage::Idle;
-        stashInventorySeeded_ = false;
+        stashInventorySeeded_ = false; stashDepositIneligibleOnly_ = false; stashFromExhaustion_ = false;
         stashPendingItem_.reset(); status_ = reason;
     }
     void Reset() { Stop("Open an empty Reforging Bench, then press Start reforging."); outlines_.clear(); labels_.clear(); displayedCount_ = 0; }
@@ -1830,6 +1830,7 @@ public:
         stashResumeForDeposit_ = false;
         stashRarityMask_ = rarityMask; stashCategory_ = stashPage_ = 0;
         stashTabSelected_ = false; stashPendingItem_.reset(); stashFromExhaustion_ = false;
+        stashDepositIneligibleOnly_ = false; stashDepositInit_ = false; stashDepositItem_.reset();
         all_ = true; inputTransferDelayMs_ = FasterTransferDelayMs(transferDelayMs);
         inputPulseMs_ = std::clamp(pulseMs, 12, 40);
         area_ = c->Game.GetAreaChangeCounter(); window_ = c->Game.GetGameWindow();
