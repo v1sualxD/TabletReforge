@@ -1,4 +1,4 @@
-# TabletReforge 0.7.3
+# TabletReforge 0.7.4
 
 An English-only POEFixer plugin for reforging Path of Exile 2 tablets. Based on TabletHelper by Omer Faruk ARPA and POEFixer; distributed under GPL-3.0.
 
@@ -9,7 +9,7 @@ An English-only POEFixer plugin for reforging Path of Exile 2 tablets. Based on 
 3. It withdraws eligible identified Magic or Rare tablets, closes the stash, detects and opens the movable Reforging Bench, and reforges groups of three from the same category and rarity.
 4. It closes the bench, reopens the stash, returns results and leftovers, then repeats until no compatible trio remains. Press **Esc** to cancel.
 
-Normal, unidentified, corrupted, Sanctified, and below-threshold tablets are excluded. Before withdrawing a candidate, the plugin checks its live tooltip; Sanctified tablets stay in the stash. The hovered-item tooltip scan now uses the same 8,000-node budget as stash discovery so the open stash UI does not consume the scan limit. If it still cannot read the tooltip, it stops before clicking. Tablets matching selected keep mods remain in the stash. Only items withdrawn during this run and their results are returned. Transfer and pickup delays retain the selected speed setting and run about 1.3x faster than before.
+Normal, unidentified, corrupted, Sanctified, and below-threshold tablets are excluded. Before withdrawing a candidate, the plugin checks its live tooltip; Sanctified tablets stay in the stash. The hovered-item scan now checks both POEFixer UI roots. During a manual debug recording, a failed tooltip check logs each root's node budget, whether the title and Sanctified marker were found, the nearby UI text, and item-mod metadata. If it cannot verify the item, it still stops before clicking. Tablets matching selected keep mods remain in the stash. Only items withdrawn during this run and their results are returned. Transfer and pickup delays retain the selected speed setting and run about 1.3x faster than before.
 
 ## Diagnostics
 
