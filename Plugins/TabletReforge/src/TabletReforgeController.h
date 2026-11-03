@@ -80,6 +80,7 @@ class TabletReforgeController {
     int activeInputPulseMs_ = 40;
     static constexpr int kNormalClickPulseMs = 40;
     static constexpr int kHoverBeforeClickMs = 450;
+    static constexpr int kStashTabletHoverMs = 280;
     enum class WorldClickPhase { Idle, Hover, ButtonDown };
     WorldClickPhase worldClickPhase_ = WorldClickPhase::Idle;
     POINT worldClickScreen_{};
@@ -853,7 +854,7 @@ class TabletReforgeController {
         input.mi.dwFlags = MOUSEEVENTF_MOVE | MOUSEEVENTF_ABSOLUTE | MOUSEEVENTF_VIRTUALDESK;
         return ::SendInput(1, &input, sizeof(INPUT)) == 1;
     }
-    bool Click(const PluginSDK::Context* c, POINT point, bool ctrl, int pulseMs = 0) {
+    bool Click(const PluginSDK::Context* c, POINT point, bool ctrl, int pulseMs = 0, int hoverMs = 0) {
         if (!Ready(c) || point.x < 0 || point.y < 0 || point.x >= width_ || point.y >= height_) return false;
         for (int key : {VK_CONTROL, VK_SHIFT, VK_MENU, VK_LWIN, VK_RWIN, VK_LBUTTON, VK_RBUTTON})
             if (::GetAsyncKeyState(key) & 0x8000) return false;
@@ -873,7 +874,8 @@ class TabletReforgeController {
         // Only inventory-to-bench tablet clicks pass a speed override.
         // Stash and bench UI clicks keep a steady pulse and hover pause.
         activeInputPulseMs_ = pulseMs > 0 ? std::clamp(pulseMs, 12, 40) : kNormalClickPulseMs;
-        inputDue_ = Clock::now() + std::chrono::milliseconds(kHoverBeforeClickMs);
+        inputDue_ = Clock::now() + std::chrono::milliseconds(
+            hoverMs > 0 ? std::clamp(hoverMs, 100, kHoverBeforeClickMs) : kHoverBeforeClickMs);
         return true;
     }
     void ReleaseInput() {
@@ -1457,7 +1459,7 @@ class TabletReforgeController {
             // hovered tooltip is being read. Start transfer verification from
             // the newest unchanged inventory snapshot.
             stashBagStamp_ = snapshot.ScanStamp;
-            if (!Click(c, *point, true)) { Stop("Could not safely Ctrl-click a stash tablet."); return; }
+            if (!Click(c, *point, true, 0, kStashTabletHoverMs)) { Stop("Could not safely Ctrl-click a stash tablet."); return; }
             stashStage_ = StashStage::WaitPull; stashPullRetries_ = 0; stashActionAt_ = now;
             status_ = "Withdrawing selected identified tablets from stash...";
             c->Inventory.Scan(1); return;
@@ -1474,7 +1476,7 @@ class TabletReforgeController {
                     ? std::nullopt
                     : TabletStashSlotCenter(*stashTargets_, stillPresent->SlotX, stillPresent->SlotY);
                 if (page.state != TabletStashPageMatchState::Matched || !retryPoint ||
-                    !Click(c, *retryPoint, true)) return false;
+                    !Click(c, *retryPoint, true, 0, kStashTabletHoverMs)) return false;
                 ++stashPullRetries_;
                 stashBagStamp_ = snapshot.ScanStamp;
                 stashActionAt_ = now;
@@ -1559,10 +1561,22 @@ class TabletReforgeController {
             }
 
             const auto tablet = std::find_if(snapshot.Value.Items.begin(), snapshot.Value.Items.end(), [&](const auto& entry) {
-                return bag.contains(entry.Address) && LooksLikeTablet(entry.Path, entry.BaseTypeName);
+                if (!bag.contains(entry.Address) || !LooksLikeTablet(entry.Path, entry.BaseTypeName)) return false;
+                if (!stashDepositIneligibleOnly_) return true;
+                const auto identity = bag.find(entry.Address);
+                return identity == bag.end() ||
+                    !ReforgeCandidate(identity->second, stashRarityMask_, stashTypeRules_, false);
             });
             if (tablet == snapshot.Value.Items.end()) {
-                if (stashFromExhaustion_) {
+                if (stashDepositIneligibleOnly_) {
+                    stashDepositIneligibleOnly_ = false;
+                    stashDepositInit_ = false;
+                    stashExpectedBag_ = bag;
+                    stashTabSelected_ = true;
+                    stashStage_ = StashStage::NavigateCategory;
+                    stashActionAt_ = now;
+                    status_ = "Filtered-out tablets returned from your inventory. Continuing the stash scan...";
+                } else if (stashFromExhaustion_) {
                     stashStage_ = StashStage::Finished; stashCycle_ = false; stashInputMode_ = false;
                     status_ = "Finished: all tablets, results, and leftovers returned to the Tablet stash.";
                 } else {
@@ -1741,7 +1755,7 @@ public:
             debugStarted_ = Clock::now();
             debugNextSample_ = debugStarted_;
             debugRecording_ = true;
-            debugLog_ << "TabletReforge live debug capture 0.7.10\n"
+            debugLog_ << "TabletReforge live debug capture 0.8.7\n"
                 << "Started manually from Diagnostics. Samples every 500 ms until Stop is pressed.\n";
             status_ = "Debug recording started. Reproduce the issue, then press Stop recording.";
         } catch (...) {
