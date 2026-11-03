@@ -80,8 +80,12 @@ inline TabletStashPageMatch MatchVisibleStashPage(const TabletStashTargets& targ
             std::abs(inventory.Grid.CellSize - targets.cellSize) > cellTolerance)
             continue;
         std::set<std::pair<int, int>> slots;
-        if (inventory.Items.empty() ||
-            (readTabletSlots(inventory, slots) && (uiSlots.empty() || slots == uiSlots)))
+        // An empty POEFixer item list during a page refresh is not proof that
+        // the visible stash page is empty. Only accept Empty when both sources
+        // agree that there are no occupied tablet cells.
+        if ((inventory.Items.empty() && uiSlots.empty()) ||
+            (!inventory.Items.empty() && readTabletSlots(inventory, slots) &&
+                (uiSlots.empty() || slots == uiSlots)))
             geometryMatches.push_back(&inventory);
     }
     if (geometryMatches.size() == 1) {
