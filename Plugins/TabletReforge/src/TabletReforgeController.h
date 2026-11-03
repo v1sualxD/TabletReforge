@@ -18,7 +18,7 @@ struct TabletLabel { ScreenRect rect; std::string type; int rarity = 0; };
 struct TabletOutline { ScreenRect rect; int rarity = 0; };
 class TabletReforgeController {
     using Clock = std::chrono::steady_clock;
-    enum class Phase { Idle, InitialScan, Transfer, WaitTransfer, Forge, WaitForge, PlaceResult, WaitResult };
+    enum class Phase { Idle, InitialScan, Transfer, WaitTransfer, Forge, WaitForge, WaitResult };
     enum class StashStage { Idle, PendingStart, NavigateTab, NavigateCategory, NavigatePage,
         ReadPage, Pull, WaitPull, CheckTabletTooltip, WaitTabletClipboard, AwaitBench, AwaitStash, Deposit, WaitDeposit, Finished,
         CloseStashForBench, WaitStashClosed, FindBench, WaitBenchOpen, ForgePass,
@@ -69,8 +69,6 @@ class TabletReforgeController {
     int inputTransferDelayMs_ = 540;
     // Let the reforger finish producing its result before the first pickup click.
     static constexpr int kForgeResultReadyPauseMs = 1700;
-    // Allow the picked-up result to settle before placing it in the inventory.
-    static constexpr int kResultPickupPauseMs = 1700;
     enum class InputPhase { Idle, MoveAndModifier, ButtonDown, ButtonUp, ModifierUp };
     InputPhase inputPhase_ = InputPhase::Idle;
     bool ownedCtrl_ = false, ownedButton_ = false;
@@ -1800,10 +1798,9 @@ public:
         if (!Running()) return;
         if (!Ready(c)) { Stop("Stopped: bench closed, moved, resized, or another automation started."); return; }
         if (now > deadline_) { Stop("Stopped: no confirmation within 6 seconds. Check the bench before restarting."); return; }
-        const int phaseDelayMs = phase_ == Phase::PlaceResult ? kResultPickupPauseMs
-            : (phase_ == Phase::WaitForge ? kForgeResultReadyPauseMs
-                : ((phase_ == Phase::Transfer || phase_ == Phase::WaitTransfer)
-                    ? inputTransferDelayMs_ : kActionDelayMs));
+        const int phaseDelayMs = phase_ == Phase::WaitForge ? kForgeResultReadyPauseMs
+            : ((phase_ == Phase::Transfer || phase_ == Phase::WaitTransfer)
+                ? inputTransferDelayMs_ : kActionDelayMs);
         if (now - actionAt_ < std::chrono::milliseconds(phaseDelayMs)) return;
         const auto snapshot = c->Inventory.ReadSnapshot(1);
         if (!snapshot.Ready || snapshot.ScanStamp == stamp_) return;
@@ -1863,27 +1860,10 @@ public:
         }
         if (phase_ == Phase::WaitForge) {
             const auto& output = targets_->output;
-            if (bag != expected_ || !Click(c, {static_cast<LONG>(output.CenterX()), static_cast<LONG>(output.CenterY())}, false, kResultClickPulseMs)) {
+            if (bag != expected_ || !Click(c, {static_cast<LONG>(output.CenterX()), static_cast<LONG>(output.CenterY())}, true, kResultClickPulseMs)) {
                 Stop("Stopped before collecting the result."); return;
             }
             status_ = "Picking up reforge result...";
-            Wait(c, Phase::PlaceResult, snapshot.ScanStamp); return;
-        }
-        if (phase_ == Phase::PlaceResult) {
-            // Some bench versions do not quick-transfer the output on Ctrl+click.
-            // A plain click picks it up; if that did not already add it to the bag,
-            // place the carried item into a known empty inventory cell.
-            if (bag != expected_) {
-                phase_ = Phase::WaitResult;
-                actionAt_ = now;
-                stamp_ = snapshot.ScanStamp;
-                deadline_ = now + std::chrono::seconds(6);
-                return;
-            }
-            const auto emptyCell = FirstFreeInventoryCell(inv);
-            if (!emptyCell || !Click(c, *emptyCell, false, kResultClickPulseMs)) {
-                Stop("Stopped: could not place the result in an empty inventory slot."); return;
-            }
             Wait(c, Phase::WaitResult, snapshot.ScanStamp); return;
         }
         if (phase_ == Phase::WaitResult) {
