@@ -376,6 +376,8 @@ class TabletReforgeController {
                 << "status=[" << status_ << "] phase=" << static_cast<int>(phase_)
                 << " stash_stage=" << static_cast<int>(stashStage_)
                 << " stash_cycle=" << stashCycle_ << " pending=" << pending_
+                << " stash_category=" << (stashCategory_ < stashCategories_.size() ? stashCategories_[stashCategory_] : "done")
+                << " stash_page=" << stashPage_
                 << " foreground_hwnd=" << foreground << " foreground_pid=" << foregroundPid
                 << " game_hwnd=" << gameWindow << " game_foreground=" << Foreground(c)
                 << " cursor_screen=" << (cursorValid ? std::to_string(screen.x) + "," + std::to_string(screen.y) : "unavailable")
@@ -891,9 +893,9 @@ class TabletReforgeController {
         if (PumpInput(c)) return;
 
         const auto now = Clock::now();
-        if (now - stashActionAt_ < std::chrono::milliseconds(190)) return;
+        if (now - stashActionAt_ < std::chrono::milliseconds(120)) return;
         if (stashStage_ == StashStage::CheckTabletTooltip &&
-            now - stashActionAt_ < std::chrono::milliseconds(350)) return;
+            now - stashActionAt_ < std::chrono::milliseconds(180)) return;
         if (stashStage_ == StashStage::CloseStashForBench) {
             if (TabletStashPanelOpen(c)) {
                 if (!PressEscape(c)) { status_ = "Waiting to close the Tablet stash safely..."; return; }
@@ -1030,7 +1032,7 @@ class TabletReforgeController {
             stashInputMode_ = true; stashTabSelected_ = false; stashUiCategory_ = stashUiPage_ = -1;
             stashStage_ = StashStage::NavigateTab; stashActionAt_ = now;
         }
-        if (now - stashActionAt_ < std::chrono::milliseconds(190)) return;
+        if (now - stashActionAt_ < std::chrono::milliseconds(120)) return;
 
         if (stashStage_ == StashStage::NavigateTab || stashStage_ == StashStage::NavigateCategory ||
             stashStage_ == StashStage::NavigatePage || stashStage_ == StashStage::ReadPage ||
@@ -1267,9 +1269,13 @@ class TabletReforgeController {
                     stashStage_ = StashStage::Finished; stashCycle_ = false; stashInputMode_ = false;
                     status_ = "Finished: all selected stash pages were processed; results and leftovers returned.";
                 } else {
-                    stashCategory_ = stashPage_ = 0; stashUiCategory_ = stashUiPage_ = -1;
+                    // Resume exactly where the scan filled the inventory. Restarting
+                    // at category zero can starve later selected categories when the
+                    // first category contains enough tablets to fill every trip.
+                    if (stashCategory_ >= stashCategories_.size()) stashCategory_ = stashPage_ = 0;
+                    stashUiCategory_ = stashUiPage_ = -1;
                     stashTabSelected_ = true; stashStage_ = StashStage::NavigateCategory;
-                    stashActionAt_ = now; status_ = "Results returned. Scanning selected stash pages again...";
+                    stashActionAt_ = now; status_ = "Results returned. Continuing the selected stash scan...";
                 }
                 return;
             }
@@ -1478,7 +1484,7 @@ public:
             debugStarted_ = Clock::now();
             debugNextSample_ = debugStarted_;
             debugRecording_ = true;
-            debugLog_ << "TabletReforge live debug capture 0.7.5\n"
+            debugLog_ << "TabletReforge live debug capture 0.7.6\n"
                 << "Started manually from Diagnostics. Samples every 500 ms until Stop is pressed.\n";
             status_ = "Debug recording started. Reproduce the issue, then press Stop recording.";
         } catch (...) {
