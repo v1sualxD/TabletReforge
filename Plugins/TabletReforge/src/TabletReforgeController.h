@@ -60,6 +60,10 @@ class TabletReforgeController {
     Clock::time_point stashActionAt_{}, stashPageRefreshAt_{};
     bool stashFromExhaustion_ = false;
     bool stashDepositIneligibleOnly_ = false;
+    size_t identityReadMisses_ = 0, identityCarried_ = 0;
+    Clock::time_point transferMismatchAt_{};
+    uint64_t transferMismatchStamp_ = 0;
+    int transferMismatchScans_ = 0;
     std::map<uintptr_t, ReforgeItem> expected_;
     std::vector<ReforgeBatch> batches_;
     size_t batch_ = 0, item_ = 0;
@@ -225,7 +229,8 @@ class TabletReforgeController {
             contains(mods.EnchantMods) || contains(mods.HellscapeMods) || contains(mods.CrucibleMods);
     }
     static ReforgeItem Identity(const PluginSDK::Context* c, const PluginSDK::InventoryItem& i,
-                                ParsedTablet* parsed = nullptr) {
+                                ParsedTablet* parsed = nullptr, bool* modsReady = nullptr) {
+        if (modsReady) *modsReady = false;
         ReforgeItem result{i.Address, i.Path, i.BaseTypeName, i.Rarity, i.ItemLevel, i.SlotX, i.SlotY,
             i.IsIdentified, i.IsCorrupted};
         result.sanctified = ContainsSanctifiedText(i.Path) || ContainsSanctifiedText(i.BaseTypeName);
@@ -234,6 +239,7 @@ class TabletReforgeController {
         if (c && i.Address) {
             const auto mods = c->Inventory.ReadItemMods(i.Address);
             if (mods.Valid) {
+                if (modsReady) *modsReady = true;
                 result.rarity = mods.Rarity;
                 result.level = mods.ItemLevel;
                 result.identified = mods.IsIdentified;
@@ -249,12 +255,32 @@ class TabletReforgeController {
     const std::map<uintptr_t, ReforgeItem>& Bag(const PluginSDK::Context* c,
         const PluginSDK::Inventory& inv, uint64_t area, uint64_t stamp) {
         if (identityCacheArea_ != area || identityCacheStamp_ != stamp) {
+            auto previous = std::move(identityCache_);
+            auto previousParsed = std::move(parsedCache_);
+            if (identityCacheArea_ != area) { previous.clear(); previousParsed.clear(); }
             identityCache_.clear();
             parsedCache_.clear();
+            identityReadMisses_ = identityCarried_ = 0;
             for (const auto& item : inv.Items) {
                 if (item.Address) {
                     ParsedTablet parsed;
-                    identityCache_.emplace(item.Address, Identity(c, item, &parsed));
+                    bool modsReady = false;
+                    auto identity = Identity(c, item, &parsed, &modsReady);
+                    if (!modsReady) {
+                        ++identityReadMisses_;
+                        const auto known = previous.find(item.Address);
+                        // Carry only an item present in the immediately preceding scan of
+                        // this area. Never keep consumed items or reuse another base's data.
+                        if (known != previous.end() && known->second.path == identity.path &&
+                            known->second.baseType == identity.baseType) {
+                            identity = known->second;
+                            identity.x = item.SlotX; identity.y = item.SlotY;
+                            const auto knownParsed = previousParsed.find(item.Address);
+                            if (knownParsed != previousParsed.end()) parsed = knownParsed->second;
+                            ++identityCarried_;
+                        }
+                    }
+                    identityCache_.emplace(item.Address, std::move(identity));
                     parsedCache_.emplace(item.Address, std::move(parsed));
                 }
             }
@@ -943,6 +969,7 @@ class TabletReforgeController {
         return true;
     }
     void Wait(const PluginSDK::Context* c, Phase next, uint64_t stamp) {
+        transferMismatchAt_ = {}; transferMismatchStamp_ = 0; transferMismatchScans_ = 0;
         phase_ = next; stamp_ = stamp; actionAt_ = Clock::now();
         deadline_ = actionAt_ + std::chrono::seconds(6);
         c->Inventory.Scan(1);
@@ -1850,7 +1877,7 @@ public:
             debugStarted_ = Clock::now();
             debugNextSample_ = debugStarted_;
             debugRecording_ = true;
-            debugLog_ << "TabletReforge live debug capture 0.9.3\n"
+            debugLog_ << "TabletReforge live debug capture 0.9.4\n"
                 << "Started manually from Diagnostics. Samples every 500 ms until Stop is pressed.\n";
             status_ = "Debug recording started. Reproduce the issue, then press Stop recording.";
         } catch (...) {
@@ -2085,7 +2112,31 @@ public:
             if (expectedItem == desired.end()) { Stop("Stopped: reforge transfer plan no longer matches the inventory."); return; }
             desired.erase(expectedItem);
             if (SameBagContents(bag, expected_)) return;
-            if (!SameBagContents(bag, desired)) { Stop("Stopped: unexpected item transfer. Check the bench."); return; }
+            if (!SameBagContents(bag, desired)) {
+                if (transferMismatchAt_ == Clock::time_point{}) {
+                    transferMismatchAt_ = now;
+                    if (debugRecording_ && debugLog_) {
+                        debugLog_ << "\nTRANSFER_MISMATCH batch=" << batch_ + 1 << " input=" << item_ + 1
+                            << " expected_count=" << desired.size() << " observed_count=" << bag.size()
+                            << " mods_unavailable=" << identityReadMisses_ << " carried=" << identityCarried_ << "\n";
+                        auto dump = [&](const char* label, const auto& contents) {
+                            for (const auto& [address, identity] : contents)
+                                debugLog_ << label << " address=" << address << " slot=" << identity.x << "," << identity.y
+                                    << " rarity=" << identity.rarity << " level=" << identity.level
+                                    << " identified=" << identity.identified << " corrupted=" << identity.corrupted
+                                    << " sanctified=" << identity.sanctified << " path=" << identity.path << "\n";
+                        };
+                        dump("expected", desired); dump("observed", bag); debugLog_.flush();
+                    }
+                }
+                if (transferMismatchStamp_ != snapshot.ScanStamp) {
+                    transferMismatchStamp_ = snapshot.ScanStamp; ++transferMismatchScans_;
+                }
+                c->Inventory.Scan(1);
+                if (now - transferMismatchAt_ < std::chrono::milliseconds(1000) || transferMismatchScans_ < 3) return;
+                Stop("Stopped: persistent unexpected item transfer. See TRANSFER_MISMATCH in the debug report."); return;
+            }
+            transferMismatchAt_ = {}; transferMismatchScans_ = 0;
             expected_ = std::move(desired);
             phase_ = ++item_ == 3 ? Phase::Forge : Phase::Transfer;
             actionAt_ = now; deadline_ = now + std::chrono::seconds(6); return;
@@ -2134,17 +2185,7 @@ public:
                 status_ = "Finished: " + std::to_string(count) + " batch(es). Results returned to inventory."; return;
             }
             item_ = 0; phase_ = Phase::Transfer; actionAt_ = now; deadline_ = now + std::chrono::seconds(6);
-            const auto nextAddress = batches_[batch_][item_].address;
-            const auto nextItem = std::find_if(inv.Items.begin(), inv.Items.end(), [&](const auto& item) {
-                return item.Address == nextAddress;
-            });
-            if (nextItem == inv.Items.end()) { Stop("Stopped: next planned tablet is missing."); return; }
-            const auto nextRect = ResolveItemRect(inv, *nextItem, HasItemRects(inv), true,
-                static_cast<float>(width_), static_cast<float>(height_));
-            if (!nextRect || !MoveCursor(c, {static_cast<LONG>(nextRect->x + nextRect->w / 2),
-                static_cast<LONG>(nextRect->y + nextRect->h / 2)})) {
-                Stop("Stopped: could not move to the next planned tablet."); return;
-            }
+
         }
     }
 };
