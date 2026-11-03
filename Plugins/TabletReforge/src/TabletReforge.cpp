@@ -38,7 +38,7 @@ uint8_t MakeRarityMask(bool magic, bool rare) {
 POEFIXER_PLUGIN_INFO(
     "TabletReforge",
     "Tablet Reforge",
-    "0.9.5",
+    "0.9.6",
     "TabletReforge contributors; Omer Faruk ARPA; POEFixer",
     "Confirm each inventory tablet Ctrl-click before depositing the next tablet into stash.")
 
@@ -174,7 +174,7 @@ public:
         if (ImGui::Checkbox("Magic", &magic_)) SaveSettings();
         ImGui::SameLine();
         if (ImGui::Checkbox("Rare", &rare_)) SaveSettings();
-        ImGui::TextDisabled("Normal tablets are excluded. Highlights: Magic blue, Rare yellow.");
+        ImGui::TextDisabled("Normal tablets are excluded.");
         ImGui::EndDisabled();
 
         ImGui::Separator();
@@ -271,20 +271,9 @@ public:
         controller_.Tick(ctx(), true, RarityMask(), types_, DirectoryPath());
         if (!ctx()->Game.IsInGame() || !ctx()->Game.IsForeground()) return;
         auto* draw = ImGui::GetBackgroundDrawList();
-        auto rarityColor = [](int rarity) -> ImU32 {
-            if (rarity == 1) return IM_COL32(75, 155, 255, 255);
-            if (rarity == 2) return IM_COL32(255, 220, 65, 255);
-            return IM_COL32(175, 175, 175, 255);
-        };
-        for (const auto& outline : controller_.Outlines()) {
-            const auto& r = outline.rect;
-            const ImU32 color = rarityColor(outline.rarity);
-            draw->AddRect(ImVec2(r.x + 2, r.y + 2), ImVec2(r.x + r.w - 2, r.y + r.h - 2), color, 2.0f, 3.0f, ImDrawFlags_None);
-            draw->AddRectFilled(ImVec2(r.x + 2, r.y + 2), ImVec2(r.x + r.w - 2, r.y + r.h - 2), (color & 0x00FFFFFFu) | 0x18000000u, 2.0f);
-        }
         if (showTabletTypes_) for (const auto& label : controller_.Labels()) {
             const auto& r = label.rect;
-            const ImU32 color = rarityColor(label.rarity);
+            const ImU32 color = IM_COL32(225, 225, 225, 255);
             auto* font = ImGui::GetFont();
             float size = (std::min)(ImGui::GetFontSize(), 12.0f);
             const float normalWidth = ImGui::CalcTextSize(label.type.c_str()).x;
