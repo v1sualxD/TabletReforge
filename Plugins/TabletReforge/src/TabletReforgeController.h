@@ -307,6 +307,14 @@ class TabletReforgeController {
     static bool SameBagContents(const std::map<uintptr_t, ReforgeItem>& a,
                                 const std::map<uintptr_t, ReforgeItem>& b) {
         if (a.size() != b.size()) return false;
+        bool sameAddresses = true;
+        for (const auto& [address, item] : a) {
+            const auto found = b.find(address);
+            if (found == b.end() || !SameTabletProperties(item, found->second)) {
+                sameAddresses = false; break;
+            }
+        }
+        if (sameAddresses) return true;
         std::vector<const ReforgeItem*> unmatched;
         unmatched.reserve(b.size());
         for (const auto& [address, item] : b) { (void)address; unmatched.push_back(&item); }
@@ -1771,23 +1779,6 @@ class TabletReforgeController {
         if (!snapshot.Ready || snapshot.AreaChangeCounter != area) return;
         const auto& bag = Bag(c, snapshot.Value, snapshot.AreaChangeCounter, snapshot.ScanStamp);
         for (const auto& [address, identity] : bag) { (void)address; if (all && ReforgeCandidate(identity, rarityMask, typeRules)) ++displayedCount_; }
-        if (!Foreground(c)) return;
-        RECT client{};
-        if (!::GetClientRect(c->Game.GetGameWindow(), &client)) return;
-        const auto& inv = snapshot.Value;
-        if (!GridDrawn(inv, static_cast<float>(client.right), static_cast<float>(client.bottom))) return;
-        for (const auto& item : inv.Items) {
-            const auto found = bag.find(item.Address);
-            const auto identity = found == bag.end() ? Identity(c, item) : found->second;
-            if (!LooksLikeTablet(item.Path, item.BaseTypeName)) continue;
-            const auto rect = ResolveItemRect(inv, item, HasItemRects(inv), true,
-                static_cast<float>(client.right), static_cast<float>(client.bottom));
-            if (!rect) continue;
-            const std::string type = ClassifyFromText(item.Path, item.BaseTypeName);
-            labels_.push_back({*rect, type, identity.rarity});
-            if (identity.identified && identity.rarity >= 0 && identity.rarity <= 2)
-                outlines_.push_back({*rect, identity.rarity});
-        }
     }
     static std::string WideToUtf8(const std::wstring& value) {
         if (value.empty()) return {};
@@ -1913,7 +1904,7 @@ public:
             debugStarted_ = Clock::now();
             debugNextSample_ = debugStarted_;
             debugRecording_ = true;
-            debugLog_ << "TabletReforge live debug capture 0.9.9\n"
+            debugLog_ << "TabletReforge live debug capture 0.9.10\n"
                 << "Started manually from Diagnostics. Samples every 500 ms until Stop is pressed.\n";
             status_ = "Debug recording started. Reproduce the issue, then press Stop recording.";
         } catch (...) {
