@@ -74,6 +74,7 @@ class TabletReforgeController {
     bool debugRecording_ = false;
     std::ofstream debugLog_;
     Clock::time_point debugStarted_{}, debugNextSample_{};
+    std::string lastTooltipScanSummary_ = "not run";
 
     static bool ContainsSanctifiedText(const std::string& value) {
         return NormalizeIdentifier(value).find("sanctified") != std::string::npos;
@@ -261,7 +262,7 @@ class TabletReforgeController {
                 << " game_hwnd=" << gameWindow << " game_foreground=" << Foreground(c)
                 << " cursor_screen=" << (cursorValid ? std::to_string(screen.x) + "," + std::to_string(screen.y) : "unavailable")
                 << " cursor_client=" << (clientValid ? std::to_string(client.x) + "," + std::to_string(client.y) : "unavailable")
-                << "\n";
+                << " tooltip_last=[" << lastTooltipScanSummary_ << "]\n";
             const auto tabs = c->Game.EnumerateStashTabs(PluginSDK::StashDomain::Own);
             debugLog_ << "stash_open=" << tabs.IsOpen() << " stash_status=" << tabs.Status << " active_tabs=";
             for (const auto& tab : tabs.Tabs)
@@ -500,21 +501,36 @@ class TabletReforgeController {
     }
     std::optional<bool> ReadHoveredTabletSanctified(const PluginSDK::Context* c, const ReforgeItem& item) {
         const auto expectedBase = NormalizeIdentifier(item.baseType);
-        if (expectedBase.empty()) return std::nullopt;
+        if (expectedBase.empty()) {
+            lastTooltipScanSummary_ = "invalid_item_base";
+            return std::nullopt;
+        }
+
+        // Some hosts expose the rendered item tooltip under the general UI root,
+        // while stash controls are exposed under the game UI root. Search both roots.
         std::vector<BenchNode> nodes;
-        // A visible stash exposes thousands of hidden UI nodes as well as its 700+ visible nodes.
-        // Use the same conservative budget as stash discovery so hidden nodes do not exhaust
-        // the tooltip scan before the hovered item title can be checked.
-        int budget = 8000;
-        ReadUi(c, c->Ui.GetGameUiRoot(), -1, 0, budget, nodes);
-        if (budget <= 0) return std::nullopt;
+        std::unordered_set<uintptr_t> seenNodes;
+        std::unordered_set<uintptr_t> seenRoots;
+        std::vector<std::string> rootResults;
+        for (const auto root : {c->Ui.GetUiRoot(), c->Ui.GetGameUiRoot()}) {
+            if (!root || !seenRoots.insert(root).second) continue;
+            std::vector<BenchNode> rootNodes;
+            int budget = 8000;
+            ReadUi(c, root, -1, 0, budget, rootNodes);
+            rootResults.push_back("root=" + std::to_string(root) + " nodes=" +
+                std::to_string(rootNodes.size()) + " remaining=" + std::to_string(budget));
+            for (auto& node : rootNodes)
+                if (seenNodes.insert(node.address).second) nodes.push_back(std::move(node));
+        }
+
         bool tooltipTitleFound = false;
         bool sanctifiedMarkerFound = false;
+        std::vector<std::string> traceNodes;
+        POINT cursor{};
+        const bool cursorValid = ::GetCursorPos(&cursor) && window_ && ::ScreenToClient(window_, &cursor);
         for (const auto& node : nodes) {
-            // PoE2 renders SANCTIFIED as a separate footer label below the tablet mods.
-            // Read localized display text separately from the UI string ID and control name,
-            // so this marker does not need to be an affix or an item-mod entry.
-            const auto displayText = NormalizeIdentifier(c->Ui.GetText(node.address));
+            const auto rawText = c->Ui.GetText(node.address);
+            const auto displayText = NormalizeIdentifier(rawText);
             const auto stringId = NormalizeIdentifier(node.text);
             const auto controlName = NormalizeIdentifier(node.name);
             const auto nodeText = displayText + " " + stringId + " " + controlName;
@@ -522,6 +538,50 @@ class TabletReforgeController {
             if (displayText == "sanctified" || stringId == "sanctified" || controlName == "sanctified" ||
                 nodeText.find("sanctified") != std::string::npos)
                 sanctifiedMarkerFound = true;
+
+            if (debugRecording_) {
+                const bool overlapsCursor = cursorValid && cursor.x >= node.x && cursor.y >= node.y &&
+                    cursor.x < node.x + node.w && cursor.y < node.y + node.h;
+                const bool nearby = cursorValid && node.w > 0 && node.h > 0 &&
+                    std::abs(node.CenterX() - cursor.x) <= 500 && std::abs(node.CenterY() - cursor.y) <= 400;
+                const auto lower = NormalizeIdentifier(rawText + " " + node.name + " " + node.text);
+                const bool keyword = lower.find(expectedBase) != std::string::npos ||
+                    lower.find("sanctified") != std::string::npos || lower.find("tooltip") != std::string::npos ||
+                    lower.find("itempopup") != std::string::npos || lower.find("itemtooltip") != std::string::npos;
+                if ((overlapsCursor || nearby || keyword) &&
+                    (!rawText.empty() || !node.text.empty() || !node.name.empty()) && traceNodes.size() < 180) {
+                    auto clean = [](std::string value) {
+                        std::replace(value.begin(), value.end(), '\r', ' ');
+                        std::replace(value.begin(), value.end(), '\n', ' ');
+                        return value;
+                    };
+                    traceNodes.push_back("ui [" + clean(node.name) + "] id=[" + clean(node.text) +
+                        "] text=[" + clean(rawText) + "] rect=" + std::to_string(node.x) + "," +
+                        std::to_string(node.y) + " " + std::to_string(node.w) + "x" +
+                        std::to_string(node.h) + " cursor_overlap=" + std::to_string(overlapsCursor));
+                }
+            }
+        }
+
+        std::string rootSummary;
+        for (const auto& result : rootResults) {
+            if (!rootSummary.empty()) rootSummary += "; ";
+            rootSummary += result;
+        }
+        lastTooltipScanSummary_ = "expected=" + expectedBase + " nodes=" + std::to_string(nodes.size()) +
+            " title=" + std::to_string(tooltipTitleFound) + " sanctified=" +
+            std::to_string(sanctifiedMarkerFound) + " " + rootSummary;
+        if (debugRecording_ && debugLog_) {
+            const auto mods = c->Inventory.ReadItemMods(item.address);
+            debugLog_ << "\n--- hovered tablet verification ---\n"
+                << "scan=[" << lastTooltipScanSummary_ << "] item_base=[" << item.baseType
+                << "] rarity=" << item.rarity << " identified=" << item.identified
+                << " corrupted=" << item.corrupted << " mods_valid=" << mods.Valid
+                << " mods_identified=" << mods.IsIdentified << " mods_corrupted=" << mods.IsCorrupted
+                << " mods_relic=" << mods.IsRelic << " mod_marker_sanctified=" << HasSanctifiedMarker(mods)
+                << "\n";
+            for (const auto& line : traceNodes) debugLog_ << line << "\n";
+            debugLog_.flush();
         }
         if (!tooltipTitleFound) return std::nullopt;
         return sanctifiedMarkerFound;
@@ -1252,7 +1312,7 @@ public:
             debugStarted_ = Clock::now();
             debugNextSample_ = debugStarted_;
             debugRecording_ = true;
-            debugLog_ << "TabletReforge live debug capture 0.7.2\n"
+            debugLog_ << "TabletReforge live debug capture 0.7.4\n"
                 << "Started manually from Diagnostics. Samples every 500 ms until Stop is pressed.\n";
             status_ = "Debug recording started. Reproduce the issue, then press Stop recording.";
         } catch (...) {
