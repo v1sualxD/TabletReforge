@@ -1016,7 +1016,11 @@ class TabletReforgeController {
                 return;
             }
         }
-        if (!Foreground(c)) return;
+        if (!Foreground(c)) {
+            if (stashCycle_)
+                status_ = "Paused: return focus to Path of Exile 2 to continue the stash cycle. Press Esc to stop.";
+            return;
+        }
         stashInputMode_ = stashStage_ == StashStage::NavigateTab ||
             stashStage_ == StashStage::NavigateCategory || stashStage_ == StashStage::NavigatePage ||
             stashStage_ == StashStage::ReadPage || stashStage_ == StashStage::Pull ||
@@ -1155,10 +1159,6 @@ class TabletReforgeController {
                     c->Inventory.Scan(1);
                     return;
                 }
-                if (!FirstFreeInventoryCell(initial.Value)) {
-                    Stop("The player inventory grid is confirmed full and has no compatible trio. Free space or adjust the selected filters.");
-                    return;
-                }
             }
             const auto tabs = c->Game.EnumerateStashTabs(PluginSDK::StashDomain::Own);
             if (!tabs.IsOpen()) {
@@ -1210,10 +1210,16 @@ class TabletReforgeController {
                 c->Inventory.Scan(1);
                 return;
             }
-            if (!FirstFreeInventoryCell(snapshot.Value)) {
-                Stop("The player inventory grid is confirmed full and has no compatible trio. Free space before scanning the stash."); return;
-            }
             stashInputMode_ = true; stashTabSelected_ = false; stashUiCategory_ = stashUiPage_ = -1;
+            if (FirstIneligibleBagTablet(c, snapshot)) {
+                BeginIneligibleTabletCleanup(c,
+                    "Returning filtered-out tablets from your inventory to the stash before scanning...");
+                return;
+            }
+            if (!FirstFreeInventoryCell(snapshot.Value)) {
+                Stop("Your inventory is full of eligible tablets but has no compatible trio. Adjust the selected categories or free bag space.");
+                return;
+            }
             stashStage_ = StashStage::NavigateTab; stashActionAt_ = now;
         }
         if (now - stashActionAt_ < std::chrono::milliseconds(108)) return;
@@ -1290,11 +1296,13 @@ class TabletReforgeController {
                 return;
             }
             if (FirstFreeInventoryCell(snapshot.Value) == std::nullopt) {
-                if (CycleHasBatch(c, snapshot))
+                if (CycleHasBatch(c, snapshot)) {
                     PauseCycleForBench("Inventory filled. Finding the Reforging Bench...");
-                else {
-                    stashFromExhaustion_ = true;
-                    PauseCycleForStash("Inventory is full but has no compatible trio. Return it to stash and adjust categories or rarity.");
+                } else if (FirstIneligibleBagTablet(c, snapshot)) {
+                    BeginIneligibleTabletCleanup(c,
+                        "Returning filtered-out tablets from your inventory to free space...");
+                } else {
+                    Stop("Your inventory is full of eligible tablets but has no compatible trio. Adjust the selected categories or free bag space.");
                 }
                 return;
             }
