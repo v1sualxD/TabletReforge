@@ -44,10 +44,15 @@ inline TabletStashPageMatch MatchVisibleStashPage(const TabletStashTargets& targ
     for (const auto& inventory : inventories) {
         if (inventory.TotalBoxesX != 12 || inventory.TotalBoxesY != 8 || !inventory.Grid.Valid)
             continue;
-        const auto withinTolerance = [](float a, float b) { return std::abs(a - b) <= 2.5f; };
-        if (!withinTolerance(inventory.Grid.GridScreenX, targets.grid.x) ||
-            !withinTolerance(inventory.Grid.GridScreenY, targets.grid.y) ||
-            !withinTolerance(inventory.Grid.CellSize, targets.cellSize)) continue;
+        // The UI-tree rectangle can be the padded pages_container while the
+        // inventory API reports the inner 12x8 cell grid. Allow a fraction of one
+        // cell for that inset, but keep the cell-size check tight to avoid matching
+        // another nearby inventory surface.
+        const float originTolerance = (std::max)(2.5f, targets.cellSize * .25f);
+        const float cellTolerance = (std::max)(2.5f, targets.cellSize * .05f);
+        if (std::abs(inventory.Grid.GridScreenX - targets.grid.x) > originTolerance ||
+            std::abs(inventory.Grid.GridScreenY - targets.grid.y) > originTolerance ||
+            std::abs(inventory.Grid.CellSize - targets.cellSize) > cellTolerance) continue;
         if (match) return {TabletStashPageMatchState::Ambiguous, {}};
         match = inventory;
     }
