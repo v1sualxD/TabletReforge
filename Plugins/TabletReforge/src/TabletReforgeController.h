@@ -1287,12 +1287,14 @@ class TabletReforgeController {
             if (snapshot.ScanStamp == stashBagStamp_) {
                 if (now - stashActionAt_ < std::chrono::milliseconds(650)) { c->Inventory.Scan(1); return; }
                 if (retryUnchangedWithdrawal()) return;
-                if (stashPullRetries_ == 0 && now - stashActionAt_ < std::chrono::milliseconds(2500)) {
+                if (now - stashActionAt_ < std::chrono::milliseconds(2500)) {
                     status_ = "Waiting for POEFixer to confirm the stash withdrawal...";
                     c->Inventory.Scan(1);
                     return;
                 }
-                Stop("Stash withdrawal was not confirmed after the safe retry. Check the inventory before restarting.");
+                Stop(stashPullRetries_ == 0
+                    ? "Stash withdrawal was not confirmed and could not be safely retried. Check the inventory before restarting."
+                    : "Stash withdrawal was not confirmed after one safe retry. Check the inventory before restarting.");
                 return;
             }
             if (bag.size() != stashExpectedBag_.size() + 1) {
@@ -1301,8 +1303,15 @@ class TabletReforgeController {
                     return;
                 }
                 if (retryUnchangedWithdrawal()) return;
+                if (now - stashActionAt_ < std::chrono::milliseconds(2500)) {
+                    status_ = "Waiting for POEFixer to confirm the stash withdrawal...";
+                    c->Inventory.Scan(1);
+                    return;
+                }
                 Stop(inventoryUnchanged
-                    ? "Stash Ctrl-click did not transfer the tablet after one safe retry. Check the game input and inventory."
+                    ? (stashPullRetries_ == 0
+                        ? "Stash Ctrl-click did not transfer the tablet; no safe retry could be confirmed. Check the inventory."
+                        : "Stash Ctrl-click did not transfer the tablet after one safe retry. Check the game input and inventory.")
                     : "Inventory changed unexpectedly during stash withdrawal. Check it before restarting.");
                 return;
             }
