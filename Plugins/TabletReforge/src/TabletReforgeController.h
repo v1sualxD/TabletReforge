@@ -947,10 +947,20 @@ class TabletReforgeController {
         return !PlanReforge(std::move(candidates)).empty();
     }
     void AdvanceStashPage(const PluginSDK::Context* c) {
-        if (++stashPage_ >= 6) { stashPage_ = 0; ++stashCategory_; }
-        stashUiCategory_ = stashUiPage_ = -1;
+        if (++stashPage_ >= 6) {
+            stashPage_ = 0;
+            ++stashCategory_;
+            stashUiCategory_ = -1;
+        }
+        // Keep the active category while moving through its six pages. Only
+        // reset the page control between pages; select a new category once when
+        // the current category's six pages have all been scanned.
+        stashUiPage_ = -1;
+        stashPageRefreshAt_ = {};
+        stashEmptyConfirmCategory_ = stashEmptyConfirmPage_ = -1;
+        stashEmptyConfirmAt_ = {};
         if (stashCategory_ < stashCategories_.size()) {
-            stashStage_ = StashStage::NavigateCategory;
+            stashStage_ = stashUiCategory_ < 0 ? StashStage::NavigateCategory : StashStage::NavigatePage;
             return;
         }
         stashFromExhaustion_ = true;
