@@ -611,10 +611,15 @@ class TabletReforgeController {
             c->Game.GetAreaChangeCounter() != area_ || c->Game.IsHostAutomationActive()) {
             Stop("Stopped: game focus changed while waiting to click the stash or bench."); return true;
         }
-        for (int key : {VK_CONTROL, VK_SHIFT, VK_MENU, VK_LWIN, VK_RWIN, VK_LBUTTON, VK_RBUTTON})
+        for (int key : {VK_CONTROL, VK_SHIFT, VK_MENU, VK_LWIN, VK_RWIN})
             if (::GetAsyncKeyState(key) & 0x8000) {
-                Stop("Stopped: a key or mouse button was held during the world click."); return true;
+                Stop("Stopped: a modifier key was held during the world click."); return true;
             }
+        if (worldClickPhase_ == WorldClickPhase::Hover)
+            for (int key : {VK_LBUTTON, VK_RBUTTON})
+                if (::GetAsyncKeyState(key) & 0x8000) {
+                    Stop("Stopped: a mouse button was held before the world click."); return true;
+                }
         POINT cursor{};
         if (!::GetCursorPos(&cursor) || std::abs(cursor.x - worldClickScreen_.x) > 2 ||
             std::abs(cursor.y - worldClickScreen_.y) > 2) {
