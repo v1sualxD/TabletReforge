@@ -390,6 +390,20 @@ class TabletReforgeController {
                 << " cursor_screen=" << (cursorValid ? std::to_string(screen.x) + "," + std::to_string(screen.y) : "unavailable")
                 << " cursor_client=" << (clientValid ? std::to_string(client.x) + "," + std::to_string(client.y) : "unavailable")
                 << " tooltip_last=[" << lastTooltipScanSummary_ << "]\n";
+            const auto player = c->Inventory.ReadSnapshot(1);
+            debugLog_ << "player_inventory_snapshot supported=" << player.Supported
+                << " ready=" << player.Ready << " id=" << player.Value.InventoryId
+                << " grid=" << player.Value.Grid.Valid << ":" << player.Value.Grid.GridScreenX
+                << "," << player.Value.Grid.GridScreenY << "," << player.Value.Grid.CellSize
+                << " size=" << player.Value.TotalBoxesX << "x" << player.Value.TotalBoxesY
+                << " items=" << player.Value.Items.size()
+                << " has_free_cell=" << (player.Ready && FirstFreeInventoryCell(player.Value).has_value()) << "\\n";
+            if (stashTargets_) {
+                debugLog_ << "tablet_stash_ui_grid=" << stashTargets_->grid.x << "," << stashTargets_->grid.y
+                    << " size=" << stashTargets_->grid.w << "x" << stashTargets_->grid.h
+                    << " cell=" << stashTargets_->cellSize
+                    << " occupied_slots=" << stashTargets_->occupiedSlots.size() << "\\n";
+            }
             const auto tabs = c->Game.EnumerateStashTabs(PluginSDK::StashDomain::Own);
             debugLog_ << "stash_open=" << tabs.IsOpen() << " stash_status=" << tabs.Status << " active_tabs=";
             for (const auto& tab : tabs.Tabs)
@@ -1614,7 +1628,7 @@ public:
             debugStarted_ = Clock::now();
             debugNextSample_ = debugStarted_;
             debugRecording_ = true;
-            debugLog_ << "TabletReforge live debug capture 0.7.7\n"
+            debugLog_ << "TabletReforge live debug capture 0.7.10\n"
                 << "Started manually from Diagnostics. Samples every 500 ms until Stop is pressed.\n";
             status_ = "Debug recording started. Reproduce the issue, then press Stop recording.";
         } catch (...) {
