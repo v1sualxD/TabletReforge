@@ -1333,22 +1333,8 @@ class TabletReforgeController {
             return;
         }
         if (stashStage_ == StashStage::ReadPage || stashStage_ == StashStage::Pull) {
-            if (!PlayerInventoryGridReady(snapshot.Value)) {
-                status_ = "Waiting for the player inventory grid; it is not being treated as full.";
-                c->Inventory.Scan(1);
-                return;
-            }
-            if (FirstFreeInventoryCell(snapshot.Value) == std::nullopt) {
-                if (CycleHasBatch(c, snapshot)) {
-                    PauseCycleForBench("Inventory filled. Finding the Reforging Bench...");
-                } else if (FirstIneligibleBagTablet(c, snapshot)) {
-                    BeginIneligibleTabletCleanup(c,
-                        "Returning filtered-out tablets from your inventory to free space...");
-                } else {
-                    Stop("Your inventory is full of eligible tablets but has no compatible trio. Adjust the selected categories or free bag space.");
-                }
-                return;
-            }
+            // Do not block page inspection on POEFixer's intermittent player-bag
+            // grid loss. Empty pages can be advanced without needing a bag cell.
             TabletStashPageMatch match;
             if (stashPageInventorySnapshot_) {
                 match.inventory = std::move(*stashPageInventorySnapshot_);
@@ -1381,7 +1367,10 @@ class TabletReforgeController {
                     if (stashInventoryId_ > 0) c->Inventory.Scan(stashInventoryId_);
                     return;
                 }
-                if (now - stashEmptyConfirmAt_ < std::chrono::milliseconds(360)) {
+                if (now - stashEmptyConfirmAt_ < std::chrono::milliseconds(1500)) {
+                    // Re-scan this active stash inventory while confirming. A
+                    // transient empty page during POEFixer's page switch must
+                    // not cause pages 2–6 to be skipped.
                     if (stashInventoryId_ > 0) c->Inventory.Scan(stashInventoryId_);
                     return;
                 }
@@ -1421,9 +1410,34 @@ class TabletReforgeController {
                 return a->SlotY == b->SlotY ? a->SlotX < b->SlotX : a->SlotY < b->SlotY;
             });
             if (candidates.empty()) { AdvanceStashPage(c); return; }
+            if (!PlayerInventoryGridReady(snapshot.Value)) {
+                status_ = "Waiting for POEFixer to expose the player bag grid before withdrawing a tablet.";
+                c->Inventory.Scan(1);
+                return;
+            }
+            if (!FirstFreeInventoryCell(snapshot.Value)) {
+                if (CycleHasBatch(c, snapshot)) {
+                    PauseCycleForBench("Inventory filled. Finding the Reforging Bench...");
+                } else if (FirstIneligibleBagTablet(c, snapshot)) {
+                    BeginIneligibleTabletCleanup(c,
+                        "Returning filtered-out tablets from your inventory to free space...");
+                } else {
+                    Stop("Your inventory is full of eligible tablets but has no compatible trio. Adjust the selected categories or free bag space.");
+                }
+                return;
+            }
             const auto* item = candidates.front();
             const auto point = TabletStashSlotCenter(*stashTargets_, item->SlotX, item->SlotY);
-            if (!point || !MoveCursor(c, *point)) { Stop("Could not safely hover a stash tablet for inspection."); return; }
+            if (!point) { Stop("Could not safely locate the stash tablet cell."); return; }
+            if (!MoveCursor(c, *point)) {
+                // UI controls and the bag grid can be republished between two
+                // polls. No click has been sent yet, so refresh and retry safely.
+                status_ = "Waiting for stable stash controls before hovering the tablet; no item clicked.";
+                stashPageInventorySnapshot_.reset();
+                stashPageRefreshAt_ = {};
+                if (stashInventoryId_ > 0) c->Inventory.Scan(stashInventoryId_);
+                return;
+            }
             stashPendingItem_ = Identity(c, *item); stashExpectedBag_ = bag;
             stashBagStamp_ = snapshot.ScanStamp;
             stashStage_ = StashStage::CheckTabletTooltip; stashActionAt_ = now;
@@ -1814,7 +1828,7 @@ public:
             debugStarted_ = Clock::now();
             debugNextSample_ = debugStarted_;
             debugRecording_ = true;
-            debugLog_ << "TabletReforge live debug capture 0.9.0\n"
+            debugLog_ << "TabletReforge live debug capture 0.9.1\n"
                 << "Started manually from Diagnostics. Samples every 500 ms until Stop is pressed.\n";
             status_ = "Debug recording started. Reproduce the issue, then press Stop recording.";
         } catch (...) {
