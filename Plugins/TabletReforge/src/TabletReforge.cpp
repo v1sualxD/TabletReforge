@@ -38,9 +38,9 @@ uint8_t MakeRarityMask(bool magic, bool rare) {
 POEFIXER_PLUGIN_INFO(
     "TabletReforge",
     "Tablet Reforge",
-    "0.8.1",
+    "0.8.2",
     "TabletReforge contributors; Omer Faruk ARPA; POEFixer",
-    "Reforge identified tablets by rarity in matching category trios, wait for output to stabilize before pickup, collect results without reusing unidentified tablets, and display tablet types.")
+    "Reforge identified tablets by rarity in matching category trios, stabilize output before pickup, and use a 0-50 speed setting for transfers while keeping result clicks steady.")
 
 class TabletReforgePlugin : public PluginSDK::Plugin {
     TabletHelper::TabletReforgeController controller_;
@@ -76,7 +76,7 @@ public:
                     allTablets_ = ReadBool(settings, "all_tablets", allTablets_);
                     showTabletTypes_ = ReadBool(settings, "show_tablet_types", showTabletTypes_);
                     if (settings.contains("execution_speed") && settings["execution_speed"].is_number_integer())
-                        executionSpeed_ = std::clamp(settings["execution_speed"].get<int>(), 1, 20);
+                        executionSpeed_ = std::clamp(settings["execution_speed"].get<int>(), 0, 50);
 
                     // Migrate rarity choices from the old active profile, if present.
                     const nlohmann::json* raritySettings = &settings;
@@ -148,7 +148,7 @@ public:
         ImGui::Separator();
 
         ImGui::BeginDisabled(controller_.Busy() || controller_.StashCycleActive());
-        if (ImGui::SliderInt("Transfer speed", &executionSpeed_, 1, 20)) SaveSettings();
+        if (ImGui::SliderInt("Transfer speed (0 = slowest)", &executionSpeed_, 0, 50)) SaveSettings();
         if (ImGui::SliderInt("Minimum uses to process", &minimumUses_, 1, 10)) {
             for (auto& type : types_)
                 if (type.key != TabletHelper::TypeKeys::Global) type.minUsesLeft = minimumUses_;
@@ -226,10 +226,13 @@ public:
         ImGui::Text("Tablets to reforge: %llu", static_cast<unsigned long long>(controller_.SelectedCount()));
         ImGui::BeginDisabled(controller_.Busy() || RarityMask() == 0);
         if (ImGui::Button("Start automatic cycle", ImVec2(220, 32))) {
-            const int transferDelayMs = executionSpeed_ <= 10
-                ? 2100 - executionSpeed_ * 200
-                : 100 - (executionSpeed_ - 10) * 9;
-            const int inputPulseMs = executionSpeed_ <= 10 ? 40 : 40 - (executionSpeed_ - 10) * 2;
+            const int speed = std::clamp(executionSpeed_, 0, 50);
+            const int transferDelayMs = speed <= 10
+                ? 2100 - speed * 200
+                : std::max(10, 100 - (std::min(speed, 20) - 10) * 9);
+            const int inputPulseMs = speed <= 10 ? 40
+                : (speed <= 20 ? 40 - (speed - 10) * 2
+                    : std::max(12, 20 - (speed - 20) / 3));
             controller_.RequestStashCycle(ctx(), types_, RarityMask(), transferDelayMs, inputPulseMs);
         }
         ImGui::EndDisabled();
