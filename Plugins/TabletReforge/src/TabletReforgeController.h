@@ -19,7 +19,7 @@ struct TabletOutline { ScreenRect rect; int rarity = 0; };
 class TabletReforgeController {
     using Clock = std::chrono::steady_clock;
     enum class Phase { Idle, InitialScan, Transfer, WaitTransfer, Forge, WaitForge, WaitResult };
-    enum class StashStage { Idle, PendingStart, NavigateTab, NavigateCategory, NavigatePage,
+    enum class StashStage { Idle, PendingStart, NavigateTab, NavigateCategory, NavigatePage, AwaitPage,
         ReadPage, Pull, WaitPull, CheckTabletTooltip, WaitTabletClipboard, AwaitBench, AwaitStash, Deposit, WaitDeposit, Finished,
         CloseStashForBench, WaitStashClosed, FindBench, WaitBenchOpen, ForgePass,
         CloseBenchForStash, WaitBenchClosed, FindStash, WaitStashOpen };
@@ -51,7 +51,9 @@ class TabletReforgeController {
     std::unordered_set<uintptr_t> stashSessionAddresses_;
     std::unordered_set<uintptr_t> stashSkippedAddresses_;
     int stashUiCategory_ = -1, stashUiPage_ = -1;
-    uint64_t stashBagStamp_ = 0;
+    int stashInventoryId_ = 0;
+    uint64_t stashBagStamp_ = 0, stashPageScanStamp_ = 0;
+    bool stashPageNeedsFreshScan_ = false;
     int stashPullRetries_ = 0;
     int stashEmptyConfirmCategory_ = -1, stashEmptyConfirmPage_ = -1;
     Clock::time_point stashEmptyConfirmAt_{};
@@ -80,7 +82,7 @@ class TabletReforgeController {
     int activeInputPulseMs_ = 40;
     static constexpr int kNormalClickPulseMs = 40;
     static constexpr int kHoverBeforeClickMs = 450;
-    static constexpr int kStashTabletHoverMs = 280;
+    static constexpr int kStashTabletHoverMs = 238;
     enum class WorldClickPhase { Idle, Hover, ButtonDown };
     WorldClickPhase worldClickPhase_ = WorldClickPhase::Idle;
     POINT worldClickScreen_{};
@@ -1025,7 +1027,7 @@ class TabletReforgeController {
         }
         stashInputMode_ = stashStage_ == StashStage::NavigateTab ||
             stashStage_ == StashStage::NavigateCategory || stashStage_ == StashStage::NavigatePage ||
-            stashStage_ == StashStage::ReadPage || stashStage_ == StashStage::Pull ||
+            stashStage_ == StashStage::AwaitPage || stashStage_ == StashStage::ReadPage || stashStage_ == StashStage::Pull ||
             stashStage_ == StashStage::WaitPull || stashStage_ == StashStage::CheckTabletTooltip ||
             stashStage_ == StashStage::WaitTabletClipboard || stashStage_ == StashStage::Deposit ||
             stashStage_ == StashStage::WaitDeposit;
@@ -1287,9 +1289,31 @@ class TabletReforgeController {
                 if (!Click(c, {static_cast<LONG>(button.CenterX()), static_cast<LONG>(button.CenterY())}, false)) {
                     Stop("Could not select a Tablet stash page. No items moved."); return;
                 }
-                stashUiPage_ = static_cast<int>(stashPage_); stashActionAt_ = now; return;
+                stashUiPage_ = -2;
+                stashStage_ = StashStage::AwaitPage;
+                stashActionAt_ = now;
+                status_ = "Selecting Tablet stash page " + std::to_string(stashPage_ + 1) + " / 6...";
+                return;
             }
             stashStage_ = StashStage::ReadPage;
+        }
+        if (stashStage_ == StashStage::AwaitPage) {
+            // Click() is asynchronous. Start a targeted refresh only after its
+            // hover and mouse pulse have completed, so the scan cannot read the
+            // previous stash page before the UI processes the page selection.
+            if (inputPhase_ != InputPhase::Idle || worldClickPhase_ != WorldClickPhase::Idle) return;
+            stashPageNeedsFreshScan_ = false;
+            if (stashInventoryId_ > 0) {
+                const auto previous = c->Inventory.ReadSnapshot(stashInventoryId_);
+                stashPageScanStamp_ = previous.Ready ? previous.ScanStamp : 0;
+                c->Inventory.Scan(stashInventoryId_);
+                stashPageNeedsFreshScan_ = previous.Supported;
+            }
+            stashUiPage_ = static_cast<int>(stashPage_);
+            stashStage_ = StashStage::ReadPage;
+            stashPageRefreshAt_ = {};
+            stashActionAt_ = now;
+            return;
         }
         if (stashStage_ == StashStage::ReadPage || stashStage_ == StashStage::Pull) {
             if (!PlayerInventoryGridReady(snapshot.Value)) {
@@ -1308,7 +1332,28 @@ class TabletReforgeController {
                 }
                 return;
             }
-            const auto match = MatchVisibleStashPage(*stashTargets_, c->Inventory.GetAll(), stashCategories_[stashCategory_]);
+            std::vector<PluginSDK::Inventory> stashInventories = c->Inventory.GetAll();
+            if (stashPageNeedsFreshScan_ && stashInventoryId_ > 0) {
+                const auto fresh = c->Inventory.ReadSnapshot(stashInventoryId_);
+                if (!fresh.Supported) {
+                    // Older hosts cannot expose scan stamps; retain the normal
+                    // matching path instead of blocking the entire cycle.
+                    stashPageNeedsFreshScan_ = false;
+                } else if (!fresh.Ready || fresh.ScanStamp <= stashPageScanStamp_) {
+                    status_ = "Refreshing POEFixer data for Tablet stash page " +
+                        std::to_string(stashPage_ + 1) + " / 6...";
+                    c->Inventory.Scan(stashInventoryId_);
+                    return;
+                } else {
+                    stashPageNeedsFreshScan_ = false;
+                    const auto existing = std::find_if(stashInventories.begin(), stashInventories.end(),
+                        [&](const auto& inv) { return inv.InventoryId == stashInventoryId_; });
+                    if (existing == stashInventories.end()) stashInventories.push_back(fresh.Value);
+                    else *existing = fresh.Value;
+                }
+            }
+            const auto match = MatchVisibleStashPage(*stashTargets_, stashInventories, stashCategories_[stashCategory_]);
+            if (match.inventory.InventoryId > 0) stashInventoryId_ = match.inventory.InventoryId;
             if (match.state == TabletStashPageMatchState::Ambiguous || match.state == TabletStashPageMatchState::Missing) {
                 stashEmptyConfirmCategory_ = stashEmptyConfirmPage_ = -1;
                 stashEmptyConfirmAt_ = {};
@@ -1316,7 +1361,7 @@ class TabletReforgeController {
                     status_ = match.state == TabletStashPageMatchState::Ambiguous
                         ? "Waiting for POEFixer to publish one unambiguous Tablet stash page..."
                         : "Waiting for POEFixer to publish the selected Tablet stash page...";
-                    c->Inventory.Scan(1);
+                    if (stashInventoryId_ > 0) c->Inventory.Scan(stashInventoryId_);
                     return;
                 }
                 Stop(match.state == TabletStashPageMatchState::Ambiguous
@@ -1825,6 +1870,7 @@ public:
         }
         stashCycle_ = true; stashStage_ = StashStage::PendingStart;
         stashInventorySeeded_ = false; stashActionAt_ = Clock::now();
+        stashInventoryId_ = 0; stashPageScanStamp_ = 0; stashPageNeedsFreshScan_ = false;
         stashSessionAddresses_.clear(); stashSkippedAddresses_.clear();
         stashTypeRules_ = typeRules;
         stashResumeForDeposit_ = false;
