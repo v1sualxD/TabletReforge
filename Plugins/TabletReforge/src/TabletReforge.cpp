@@ -36,7 +36,7 @@ bool ReadBool(const nlohmann::json& settings, const char* key, bool fallback) {
 POEFIXER_PLUGIN_INFO(
     "TabletReforge",
     "Tablet Reforge",
-    "0.9.9",
+    "0.9.10",
     "TabletReforge contributors; Omer Faruk ARPA; POEFixer",
     "Confirm each inventory tablet Ctrl-click before depositing the next tablet into stash.")
 
@@ -44,6 +44,7 @@ class TabletReforgePlugin : public PluginSDK::Plugin {
     TabletHelper::TabletReforgeController controller_;
     bool allTablets_ = true;
     bool running_ = false;
+    bool automationEnabled_ = true;
     int executionSpeed_ = 15;
     int minimumUses_ = 1;
     std::vector<TypeConfig> types_ = AllTabletTypes();
@@ -67,6 +68,7 @@ public:
                 const auto settings = nlohmann::json::parse(file, nullptr, false);
                 if (settings.is_object()) {
                     allTablets_ = ReadBool(settings, "all_tablets", allTablets_);
+                    automationEnabled_ = ReadBool(settings, "automation_enabled", true);
                     if (settings.contains("execution_speed") && settings["execution_speed"].is_number_integer())
                         executionSpeed_ = std::clamp(settings["execution_speed"].get<int>(), 0, 50);
 
@@ -98,6 +100,7 @@ public:
             std::ofstream file(temporary, std::ios::binary | std::ios::trunc);
             nlohmann::json settings{
                 {"all_tablets", allTablets_},
+                {"automation_enabled", automationEnabled_},
                 {"execution_speed", executionSpeed_},
                 {"minimum_uses", minimumUses_}
             };
@@ -120,13 +123,31 @@ public:
         ImGui::SetCurrentContext(static_cast<ImGuiContext*>(ctx()->ImGuiContext));
         ImGui::PushID("TabletReforge");
 
-        ImGui::TextUnformatted("Tablet Reforge");
-        ImGui::TextDisabled("Choose categories and filters, then start the full stash-to-bench cycle.");
+        ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 5.0f);
+        ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(10, 8));
+        if (ImGui::Checkbox("Enabled", &automationEnabled_)) {
+            if (!automationEnabled_) controller_.Stop("Automation disabled.");
+            SaveSettings();
+        }
+        ImGui::SameLine(0, 20);
+        ImGui::BeginDisabled(controller_.Busy() || !automationEnabled_);
+        if (ImGui::Button("Start automatic cycle", ImVec2(220, 32))) {
+            const int speed = std::clamp(executionSpeed_, 0, 50);
+            const int transferDelayMs = speed <= 10
+                ? 2100 - speed * 200
+                : std::max(10, 100 - (std::min(speed, 20) - 10) * 9);
+            const int inputPulseMs = speed <= 10 ? 40
+                : (speed <= 20 ? 40 - (speed - 10) * 2
+                    : std::max(12, 20 - (speed - 20) / 3));
+            controller_.RequestStashCycle(ctx(), types_, RarityMask(), transferDelayMs, inputPulseMs);
+        }
+        ImGui::EndDisabled();
+        ImGui::TextDisabled("Stash > Tablets > Reforge > Deposit");
         ImGui::Separator();
 
         ImGui::BeginDisabled(controller_.Busy() || controller_.StashCycleActive());
         if (ImGui::SliderInt("Transfer speed (0 = slowest)", &executionSpeed_, 0, 50)) SaveSettings();
-        ImGui::TextDisabled("Speed affects inventory-to-bench transfers only. Stash tablet withdrawals use a faster fixed hover; other controls keep normal timing.");
+        ImGui::TextDisabled("Higher values move the three input tablets faster.");
         if (ImGui::SliderInt("Minimum uses to process", &minimumUses_, 1, 10)) {
             for (auto& type : types_)
                 if (type.key != TabletHelper::TypeKeys::Global) type.minUsesLeft = minimumUses_;
@@ -135,7 +156,7 @@ public:
         ImGui::TextDisabled("Minimum uses applies to stash withdrawal and inventory reforging.");
 
         ImGui::Separator();
-        ImGui::TextUnformatted("Tablet categories");
+        ImGui::TextUnformatted("Tablets to reforge");
         ImGui::Columns(4, "TabletReforgeCategories", false);
         for (const auto* category : TabletHelper::StashCategoryOrder) {
             const auto type = std::find_if(types_.begin(), types_.end(), [&](const auto& entry) {
@@ -196,18 +217,7 @@ public:
 
         ImGui::Separator();
         ImGui::Text("Tablets to reforge: %llu", static_cast<unsigned long long>(controller_.SelectedCount()));
-        ImGui::BeginDisabled(controller_.Busy() || RarityMask() == 0);
-        if (ImGui::Button("Start automatic cycle", ImVec2(220, 32))) {
-            const int speed = std::clamp(executionSpeed_, 0, 50);
-            const int transferDelayMs = speed <= 10
-                ? 2100 - speed * 200
-                : std::max(10, 100 - (std::min(speed, 20) - 10) * 9);
-            const int inputPulseMs = speed <= 10 ? 40
-                : (speed <= 20 ? 40 - (speed - 10) * 2
-                    : std::max(12, 20 - (speed - 20) / 3));
-            controller_.RequestStashCycle(ctx(), types_, RarityMask(), transferDelayMs, inputPulseMs);
-        }
-        ImGui::EndDisabled();
+
 
         ImGui::BeginChild("TabletReforgeStatus", ImVec2(0, 64), true);
         ImGui::TextUnformatted("Status");
@@ -233,15 +243,15 @@ public:
             ImGui::TextDisabled("Snapshot: config/tablet-reforge-diagnostics.txt.");
         }
 
+        ImGui::PopStyleVar(2);
         ImGui::PopID();
     }
 
     void DrawUI() override {
         if (!running_ || !ctx()->ImGuiContext) return;
         ImGui::SetCurrentContext(static_cast<ImGuiContext*>(ctx()->ImGuiContext));
-        controller_.Tick(ctx(), true, RarityMask(), types_, DirectoryPath());
+        if (automationEnabled_) controller_.Tick(ctx(), true, RarityMask(), types_, DirectoryPath());
         if (!ctx()->Game.IsInGame() || !ctx()->Game.IsForeground()) return;
-        auto* draw = ImGui::GetBackgroundDrawList();
         ImGui::SetNextWindowPos(ImVec2(12, 12), ImGuiCond_Always);
         ImGui::Begin("Tablet Reforge status", nullptr, ImGuiWindowFlags_AlwaysAutoResize |
             ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoInputs | ImGuiWindowFlags_NoSavedSettings);
