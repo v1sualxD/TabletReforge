@@ -1,5 +1,11 @@
 # Changelog
 
+## TabletReforge 0.7.9
+
+- Match the visible Tablet stash grid when POEFixer reports the inner cell grid slightly inset from the UI container; ambiguity still stops safely.
+- Wait for stash-withdrawal scans to settle, retry the same Ctrl-click at most once only when the inventory is unchanged, and time out with an actionable status instead of waiting indefinitely.
+- Keeps the 0.7.8 inventory-first trio check and delayed initial stash interaction.
+
 ## TabletReforge 0.7.8
 
 - Check compatible tablets already in the inventory first and start reforging immediately when a matching trio is present.
