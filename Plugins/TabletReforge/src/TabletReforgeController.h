@@ -1243,10 +1243,9 @@ class TabletReforgeController {
                 const bool attached = AttachTabletStash(c, directory, false);
                 if (refreshPage) stashPageRefreshAt_ = now;
                 if (!attached) {
-                    if (stashStage_ == StashStage::ReadPage &&
-                        now - stashActionAt_ < std::chrono::milliseconds(1980)) {
-                        status_ = "Waiting for the selected Tablet stash page to finish updating...";
-                        c->Inventory.Scan(1);
+                    if (stashStage_ == StashStage::ReadPage) {
+                        status_ = "Waiting for the selected Tablet stash page controls to become readable; no item will be clicked until they match.";
+                        if (stashInventoryId_ > 0) c->Inventory.Scan(stashInventoryId_);
                         return;
                     }
                     Stop("Tablet stash controls changed or could not be identified. No further clicks sent."); return;
@@ -1365,16 +1364,10 @@ class TabletReforgeController {
             if (match.state == TabletStashPageMatchState::Ambiguous || match.state == TabletStashPageMatchState::Missing) {
                 stashEmptyConfirmCategory_ = stashEmptyConfirmPage_ = -1;
                 stashEmptyConfirmAt_ = {};
-                if (now - stashActionAt_ < std::chrono::milliseconds(1620)) {
-                    status_ = match.state == TabletStashPageMatchState::Ambiguous
-                        ? "Waiting for POEFixer to publish one unambiguous Tablet stash page..."
-                        : "Waiting for POEFixer to publish the selected Tablet stash page...";
-                    if (stashInventoryId_ > 0) c->Inventory.Scan(stashInventoryId_);
-                    return;
-                }
-                Stop(match.state == TabletStashPageMatchState::Ambiguous
-                    ? "More than one Tablet stash page matches the visible grid. No item clicked."
-                    : "The visible Tablet stash page does not match POEFixer's item slots. No item clicked.");
+                status_ = match.state == TabletStashPageMatchState::Ambiguous
+                    ? "Waiting for POEFixer to resolve multiple matching Tablet stash grids; no item will be clicked."
+                    : "Waiting for POEFixer to publish the selected Tablet stash page; no item will be clicked.";
+                if (stashInventoryId_ > 0) c->Inventory.Scan(stashInventoryId_);
                 return;
             }
             if (match.state == TabletStashPageMatchState::Empty) {
@@ -1385,11 +1378,11 @@ class TabletReforgeController {
                     stashEmptyConfirmAt_ = now;
                     stashPageRefreshAt_ = {};
                     status_ = "Confirming the Tablet stash page is really empty...";
-                    c->Inventory.Scan(1);
+                    if (stashInventoryId_ > 0) c->Inventory.Scan(stashInventoryId_);
                     return;
                 }
                 if (now - stashEmptyConfirmAt_ < std::chrono::milliseconds(360)) {
-                    c->Inventory.Scan(1);
+                    if (stashInventoryId_ > 0) c->Inventory.Scan(stashInventoryId_);
                     return;
                 }
                 stashEmptyConfirmCategory_ = stashEmptyConfirmPage_ = -1;
@@ -1503,8 +1496,21 @@ class TabletReforgeController {
             const auto item = std::find_if(match.inventory.Items.begin(), match.inventory.Items.end(), [&](const auto& entry) {
                 return entry.Address == stashPendingItem_->address;
             });
+            if (match.state == TabletStashPageMatchState::Missing ||
+                match.state == TabletStashPageMatchState::Ambiguous) {
+                status_ = "Waiting to revalidate the hovered tablet against the active stash page; no click sent.";
+                if (stashInventoryId_ > 0) c->Inventory.Scan(stashInventoryId_);
+                return;
+            }
             if (match.state != TabletStashPageMatchState::Matched || item == match.inventory.Items.end()) {
-                Stop("Could not revalidate the inspected Tablet stash item. No item clicked."); return;
+                status_ = "The inspected stash slot changed while the page refreshed; rescanning before continuing.";
+                stashPendingItem_.reset();
+                stashStage_ = StashStage::ReadPage;
+                stashPageInventorySnapshot_.reset();
+                stashPageRefreshAt_ = {};
+                stashActionAt_ = now;
+                if (stashInventoryId_ > 0) c->Inventory.Scan(stashInventoryId_);
+                return;
             }
             const auto point = TabletStashSlotCenter(*stashTargets_, item->SlotX, item->SlotY);
             if (!point) { Stop("Could not safely locate the stash tablet."); return; }
@@ -1808,7 +1814,7 @@ public:
             debugStarted_ = Clock::now();
             debugNextSample_ = debugStarted_;
             debugRecording_ = true;
-            debugLog_ << "TabletReforge live debug capture 0.8.9\n"
+            debugLog_ << "TabletReforge live debug capture 0.9.0\n"
                 << "Started manually from Diagnostics. Samples every 500 ms until Stop is pressed.\n";
             status_ = "Debug recording started. Reproduce the issue, then press Stop recording.";
         } catch (...) {
