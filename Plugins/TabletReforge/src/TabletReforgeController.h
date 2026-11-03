@@ -76,6 +76,8 @@ class TabletReforgeController {
     bool ownedCtrl_ = false, ownedButton_ = false;
     Clock::time_point inputDue_{};
     int inputPulseMs_ = 40;
+    int activeInputPulseMs_ = 40;
+    static constexpr int kResultClickPulseMs = 40;
 
 
     bool debugRecording_ = false;
@@ -795,7 +797,7 @@ class TabletReforgeController {
         input.mi.dwFlags = MOUSEEVENTF_MOVE | MOUSEEVENTF_ABSOLUTE | MOUSEEVENTF_VIRTUALDESK;
         return ::SendInput(1, &input, sizeof(INPUT)) == 1;
     }
-    bool Click(const PluginSDK::Context* c, POINT point, bool ctrl) {
+    bool Click(const PluginSDK::Context* c, POINT point, bool ctrl, int pulseMs = 0) {
         if (!Ready(c) || point.x < 0 || point.y < 0 || point.x >= width_ || point.y >= height_) return false;
         for (int key : {VK_CONTROL, VK_SHIFT, VK_MENU, VK_LWIN, VK_RWIN, VK_LBUTTON, VK_RBUTTON})
             if (::GetAsyncKeyState(key) & 0x8000) return false;
@@ -814,7 +816,8 @@ class TabletReforgeController {
         ownedCtrl_ = ctrl;
         if (::SendInput(count, input, sizeof(INPUT)) != count) { ReleaseInput(); return false; }
         inputPhase_ = InputPhase::MoveAndModifier;
-        inputDue_ = Clock::now() + std::chrono::milliseconds(inputPulseMs_);
+        activeInputPulseMs_ = pulseMs > 0 ? std::clamp(pulseMs, 12, 40) : inputPulseMs_;
+        inputDue_ = Clock::now() + std::chrono::milliseconds(activeInputPulseMs_);
         return true;
     }
     void ReleaseInput() {
@@ -849,7 +852,7 @@ class TabletReforgeController {
         if (::SendInput(1, &event, sizeof(INPUT)) != 1) { Stop("Stopped: a mouse or keyboard event was blocked."); return true; }
         if (event.type == INPUT_MOUSE && event.mi.dwFlags == MOUSEEVENTF_LEFTUP) ownedButton_ = false;
         if (event.type == INPUT_KEYBOARD) ownedCtrl_ = false;
-        inputDue_ = now + std::chrono::milliseconds(inputPulseMs_);
+        inputDue_ = now + std::chrono::milliseconds(activeInputPulseMs_);
         return true;
     }
     void Wait(const PluginSDK::Context* c, Phase next, uint64_t stamp) {
@@ -1690,7 +1693,7 @@ public:
         if (Busy()) return;
         if (!all) { status_ = "Enable All tablets in inventory before starting."; return; }
         all_ = all; inputTransferDelayMs_ = FasterTransferDelayMs(inputTransferDelayMs);
-        inputPulseMs_ = std::clamp(inputPulseMs, 20, 40); pending_ = true;
+        inputPulseMs_ = std::clamp(inputPulseMs, 12, 40); pending_ = true;
         area_ = c->Game.GetAreaChangeCounter(); window_ = c->Game.GetGameWindow();
         status_ = "Close the POEFixer menu to start. Esc cancels.";
     }
@@ -1715,7 +1718,7 @@ public:
         stashRarityMask_ = rarityMask; stashCategory_ = stashPage_ = 0;
         stashTabSelected_ = false; stashPendingItem_.reset(); stashFromExhaustion_ = false;
         all_ = true; inputTransferDelayMs_ = FasterTransferDelayMs(transferDelayMs);
-        inputPulseMs_ = std::clamp(pulseMs, 20, 40);
+        inputPulseMs_ = std::clamp(pulseMs, 12, 40);
         area_ = c->Game.GetAreaChangeCounter(); window_ = c->Game.GetGameWindow();
         c->Overlay.SetEntityScanFlags(PluginSDK::EntityScan::StashObjects);
         const HWND gameWindow = c->Game.GetGameWindow();
@@ -1860,7 +1863,7 @@ public:
         }
         if (phase_ == Phase::WaitForge) {
             const auto& output = targets_->output;
-            if (bag != expected_ || !Click(c, {static_cast<LONG>(output.CenterX()), static_cast<LONG>(output.CenterY())}, false)) {
+            if (bag != expected_ || !Click(c, {static_cast<LONG>(output.CenterX()), static_cast<LONG>(output.CenterY())}, false, kResultClickPulseMs)) {
                 Stop("Stopped before collecting the result."); return;
             }
             status_ = "Picking up reforge result...";
@@ -1878,7 +1881,7 @@ public:
                 return;
             }
             const auto emptyCell = FirstFreeInventoryCell(inv);
-            if (!emptyCell || !Click(c, *emptyCell, false)) {
+            if (!emptyCell || !Click(c, *emptyCell, false, kResultClickPulseMs)) {
                 Stop("Stopped: could not place the result in an empty inventory slot."); return;
             }
             Wait(c, Phase::WaitResult, snapshot.ScanStamp); return;
