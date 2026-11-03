@@ -36,7 +36,7 @@ bool ReadBool(const nlohmann::json& settings, const char* key, bool fallback) {
 POEFIXER_PLUGIN_INFO(
     "TabletReforge",
     "Tablet Reforge",
-    "0.9.10",
+    "1.0.0",
     "TabletReforge contributors; Omer Faruk ARPA; POEFixer",
     "Confirm each inventory tablet Ctrl-click before depositing the next tablet into stash.")
 
