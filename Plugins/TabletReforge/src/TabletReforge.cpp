@@ -30,31 +30,26 @@ bool ReadBool(const nlohmann::json& settings, const char* key, bool fallback) {
         ? settings[key].get<bool>() : fallback;
 }
 
-uint8_t MakeRarityMask(bool magic, bool rare) {
-    return static_cast<uint8_t>((magic ? 2 : 0) | (rare ? 4 : 0));
-}
+
 } // namespace
 
 POEFIXER_PLUGIN_INFO(
     "TabletReforge",
     "Tablet Reforge",
-    "0.9.8",
+    "0.9.9",
     "TabletReforge contributors; Omer Faruk ARPA; POEFixer",
     "Confirm each inventory tablet Ctrl-click before depositing the next tablet into stash.")
 
 class TabletReforgePlugin : public PluginSDK::Plugin {
     TabletHelper::TabletReforgeController controller_;
     bool allTablets_ = true;
-    bool showTabletTypes_ = true;
     bool running_ = false;
-    bool magic_ = true;
-    bool rare_ = true;
     int executionSpeed_ = 15;
     int minimumUses_ = 1;
     std::vector<TypeConfig> types_ = AllTabletTypes();
     std::array<char, 160> bonusSearch_{};
 
-    uint8_t RarityMask() const { return MakeRarityMask(magic_, rare_); }
+    uint8_t RarityMask() const { return 6; }
 
 public:
     const char* GetName() const override { return "Tablet Reforge"; }
@@ -63,8 +58,6 @@ public:
     void OnEnable(bool) override {
         if (!HostCompatible()) return;
         allTablets_ = true;
-        showTabletTypes_ = true;
-        magic_ = rare_ = true;
         executionSpeed_ = 15;
         minimumUses_ = 1;
         types_ = AllTabletTypes();
@@ -74,22 +67,9 @@ public:
                 const auto settings = nlohmann::json::parse(file, nullptr, false);
                 if (settings.is_object()) {
                     allTablets_ = ReadBool(settings, "all_tablets", allTablets_);
-                    showTabletTypes_ = ReadBool(settings, "show_tablet_types", showTabletTypes_);
                     if (settings.contains("execution_speed") && settings["execution_speed"].is_number_integer())
                         executionSpeed_ = std::clamp(settings["execution_speed"].get<int>(), 0, 50);
 
-                    // Migrate rarity choices from the old active profile, if present.
-                    const nlohmann::json* raritySettings = &settings;
-                    if (settings.contains("profiles") && settings["profiles"].is_array() && !settings["profiles"].empty()) {
-                        size_t index = 0;
-                        if (settings.contains("active_profile") && settings["active_profile"].is_number_integer())
-                            index = static_cast<size_t>(std::clamp(settings["active_profile"].get<int>(), 0,
-                                static_cast<int>(settings["profiles"].size()) - 1));
-                        const auto& profile = settings["profiles"][index];
-                        if (profile.is_object()) raritySettings = &profile;
-                    }
-                    magic_ = ReadBool(*raritySettings, "magic", ReadBool(settings, "rarity_magic", magic_));
-                    rare_ = ReadBool(*raritySettings, "rare", ReadBool(settings, "rarity_rare", rare_));
                     if (settings.contains("minimum_uses") && settings["minimum_uses"].is_number_integer())
                         minimumUses_ = std::clamp(settings["minimum_uses"].get<int>(), 1, 10);
                     if (settings.contains("categories") && settings["categories"].is_object()) {
@@ -118,11 +98,8 @@ public:
             std::ofstream file(temporary, std::ios::binary | std::ios::trunc);
             nlohmann::json settings{
                 {"all_tablets", allTablets_},
-                {"show_tablet_types", showTabletTypes_},
                 {"execution_speed", executionSpeed_},
-                {"minimum_uses", minimumUses_},
-                {"rarity_magic", magic_},
-                {"rarity_rare", rare_}
+                {"minimum_uses", minimumUses_}
             };
             settings["categories"] = nlohmann::json::object();
             for (const auto& type : types_)
@@ -156,7 +133,6 @@ public:
             SaveSettings();
         }
         ImGui::TextDisabled("Minimum uses applies to stash withdrawal and inventory reforging.");
-        if (ImGui::Checkbox("Highlight tablet types", &showTabletTypes_)) SaveSettings();
 
         ImGui::Separator();
         ImGui::TextUnformatted("Tablet categories");
@@ -170,11 +146,6 @@ public:
         }
         ImGui::Columns(1);
 
-        ImGui::TextUnformatted("Rarities");
-        if (ImGui::Checkbox("Magic", &magic_)) SaveSettings();
-        ImGui::SameLine();
-        if (ImGui::Checkbox("Rare", &rare_)) SaveSettings();
-        ImGui::TextDisabled("Normal tablets are excluded.");
         ImGui::EndDisabled();
 
         ImGui::Separator();
@@ -271,18 +242,6 @@ public:
         controller_.Tick(ctx(), true, RarityMask(), types_, DirectoryPath());
         if (!ctx()->Game.IsInGame() || !ctx()->Game.IsForeground()) return;
         auto* draw = ImGui::GetBackgroundDrawList();
-        if (showTabletTypes_) for (const auto& label : controller_.Labels()) {
-            const auto& r = label.rect;
-            const ImU32 color = IM_COL32(225, 225, 225, 255);
-            auto* font = ImGui::GetFont();
-            float size = (std::min)(ImGui::GetFontSize(), 12.0f);
-            const float normalWidth = ImGui::CalcTextSize(label.type.c_str()).x;
-            if (normalWidth > 0) size = (std::min)(size, ImGui::GetFontSize() * (r.w - 6.0f) / normalWidth);
-            const ImVec2 text(r.x + 3.0f, r.y + 3.0f);
-            draw->AddRect(ImVec2(r.x + 1, r.y + 1), ImVec2(r.x + r.w - 1, r.y + r.h - 1), color, 1.0f, 2.0f, ImDrawFlags_None);
-            draw->AddRectFilled(ImVec2(r.x + 1, r.y + 1), ImVec2(r.x + r.w - 1, r.y + size + 6), IM_COL32(0,0,0,210));
-            draw->AddText(font, size, text, color, label.type.c_str());
-        }
         ImGui::SetNextWindowPos(ImVec2(12, 12), ImGuiCond_Always);
         ImGui::Begin("Tablet Reforge status", nullptr, ImGuiWindowFlags_AlwaysAutoResize |
             ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoInputs | ImGuiWindowFlags_NoSavedSettings);
