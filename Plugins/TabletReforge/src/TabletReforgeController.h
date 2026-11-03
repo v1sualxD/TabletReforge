@@ -39,7 +39,7 @@ class TabletReforgeController {
     StashStage stashStage_ = StashStage::Idle;
     bool stashCycle_ = false, stashInputMode_ = false, stashTabSelected_ = false, stashDepositInit_ = false;
     bool stashInventorySeeded_ = false;
-    static constexpr int kInitialStashOpenDelayMs = 765;
+    static constexpr int kInitialStashOpenDelayMs = 497;
     bool stashResumeForDeposit_ = false;
     uint8_t stashRarityMask_ = 0;
     std::vector<std::string> stashCategories_;
@@ -72,12 +72,12 @@ class TabletReforgeController {
     // Reduce wait intervals by about 1.3x while preserving the click pulse duration.
     static int FasterTransferDelayMs(int delayMs) {
         const int bounded = std::clamp(delayMs, 10, 1900);
-        return std::clamp((bounded * 10 + 6) / 13, 10, 1900);
+        return std::clamp((bounded + 1) / 2, 10, 1900);
     }
-    static constexpr int kActionDelayMs = 486;
-    int inputTransferDelayMs_ = 486;
+    static constexpr int kActionDelayMs = 316;
+    int inputTransferDelayMs_ = 316;
     // Let the reforger finish producing its result before the first pickup click.
-    static constexpr int kForgeResultReadyPauseMs = 1615;
+    static constexpr int kForgeResultReadyPauseMs = 1415;
     enum class InputPhase { Idle, Hover, ModifierDown, ButtonDown, ButtonUp, ModifierUp };
     InputPhase inputPhase_ = InputPhase::Idle;
     bool ownedCtrl_ = false, ownedButton_ = false, queuedCtrl_ = false;
@@ -85,8 +85,8 @@ class TabletReforgeController {
     int inputPulseMs_ = 40;
     int activeInputPulseMs_ = 40;
     static constexpr int kNormalClickPulseMs = 40;
-    static constexpr int kHoverBeforeClickMs = 450;
-    static constexpr int kStashTabletHoverMs = 190;
+    static constexpr int kHoverBeforeClickMs = 293;
+    static constexpr int kStashTabletHoverMs = 124;
     enum class WorldClickPhase { Idle, Hover, ButtonDown };
     WorldClickPhase worldClickPhase_ = WorldClickPhase::Idle;
     POINT worldClickScreen_{};
@@ -430,7 +430,7 @@ class TabletReforgeController {
         if (!debugRecording_ || !debugLog_) return;
         const auto now = Clock::now();
         if (now < debugNextSample_) return;
-        debugNextSample_ = now + std::chrono::milliseconds(450);
+        debugNextSample_ = now + std::chrono::milliseconds(293);
         try {
             POINT screen{};
             const bool cursorValid = ::GetCursorPos(&screen) != FALSE;
@@ -1085,9 +1085,9 @@ class TabletReforgeController {
         if (PumpWorldClick(c)) return;
 
         const auto now = Clock::now();
-        if (now - stashActionAt_ < std::chrono::milliseconds(108)) return;
+        if (now - stashActionAt_ < std::chrono::milliseconds(70)) return;
         if (stashStage_ == StashStage::CheckTabletTooltip &&
-            now - stashActionAt_ < std::chrono::milliseconds(162)) return;
+            now - stashActionAt_ < std::chrono::milliseconds(105)) return;
         if (stashStage_ == StashStage::CloseStashForBench) {
             if (TabletStashPanelOpen(c)) {
                 if (!PressEscape(c)) { status_ = "Waiting to close the Tablet stash safely..."; return; }
@@ -1109,7 +1109,7 @@ class TabletReforgeController {
         if (stashStage_ == StashStage::WaitBenchOpen) {
             // Give the character time to reach the prop. If the panel did not open,
             // retry the interaction after a pause instead of clicking rapidly.
-            if (now - stashActionAt_ < std::chrono::milliseconds(1260)) return;
+            if (now - stashActionAt_ < std::chrono::milliseconds(819)) return;
             if (!AttachBench(c, directory, false) || !Ready(c)) {
                 const auto point = FindBenchScreenPoint(c);
                 if (point && ClickWorldPoint(c, *point)) {
@@ -1127,7 +1127,7 @@ class TabletReforgeController {
             return;
         }
         if (stashStage_ == StashStage::CloseBenchForStash) {
-            if (now - stashActionAt_ < std::chrono::milliseconds(450)) return;
+            if (now - stashActionAt_ < std::chrono::milliseconds(293)) return;
             stashActionAt_ = now;
             if (BenchPanelVisible(c)) {
                 if (!PressEscape(c)) { status_ = "Waiting to close the Reforging Bench safely..."; return; }
@@ -1136,7 +1136,7 @@ class TabletReforgeController {
             stashStage_ = StashStage::FindStash;
         }
         if (stashStage_ == StashStage::WaitBenchClosed) {
-            if (now - stashActionAt_ < std::chrono::milliseconds(450)) return;
+            if (now - stashActionAt_ < std::chrono::milliseconds(293)) return;
             stashActionAt_ = now;
             if (BenchPanelVisible(c)) return;
             targets_.reset(); stashStage_ = StashStage::FindStash; stashActionAt_ = now;
@@ -1154,7 +1154,7 @@ class TabletReforgeController {
         if (stashStage_ == StashStage::WaitStashOpen) {
             // Initial interaction can send the character toward the stash. Wait for
             // that approach, then retry only if POEFixer still reports it closed.
-            if (now - stashActionAt_ < std::chrono::milliseconds(1260)) return;
+            if (now - stashActionAt_ < std::chrono::milliseconds(819)) return;
             const auto tabs = c->Game.EnumerateStashTabs(PluginSDK::StashDomain::Own);
             if (!tabs.IsOpen()) {
                 const auto point = FindOwnStashScreenPoint(c);
@@ -1276,7 +1276,7 @@ class TabletReforgeController {
             }
             stashStage_ = StashStage::NavigateTab; stashActionAt_ = now;
         }
-        if (now - stashActionAt_ < std::chrono::milliseconds(108)) return;
+        if (now - stashActionAt_ < std::chrono::milliseconds(70)) return;
 
         if (stashStage_ == StashStage::NavigateTab || stashStage_ == StashStage::NavigateCategory ||
             stashStage_ == StashStage::NavigatePage || stashStage_ == StashStage::ReadPage ||
@@ -1287,7 +1287,7 @@ class TabletReforgeController {
             const bool refreshPage = stashStage_ == StashStage::ReadPage &&
                 !stashPageInventorySnapshot_ &&
                 (stashPageRefreshAt_ == Clock::time_point{} ||
-                    now - stashPageRefreshAt_ >= std::chrono::milliseconds(360));
+                    now - stashPageRefreshAt_ >= std::chrono::milliseconds(234));
             if (refreshPage || !stashTargets_) {
                 const bool attached = AttachTabletStash(c, directory, false);
                 if (refreshPage) stashPageRefreshAt_ = now;
@@ -1416,7 +1416,7 @@ class TabletReforgeController {
                     if (stashInventoryId_ > 0) c->Inventory.Scan(stashInventoryId_);
                     return;
                 }
-                if (now - stashEmptyConfirmAt_ < std::chrono::milliseconds(1500)) {
+                if (now - stashEmptyConfirmAt_ < std::chrono::milliseconds(975)) {
                     // Re-scan this active stash inventory while confirming. A
                     // transient empty page during POEFixer's page switch must
                     // not cause pages 2–6 to be skipped.
@@ -1887,7 +1887,7 @@ public:
             debugStarted_ = Clock::now();
             debugNextSample_ = debugStarted_;
             debugRecording_ = true;
-            debugLog_ << "TabletReforge live debug capture 0.9.5\n"
+            debugLog_ << "TabletReforge live debug capture 0.9.6\n"
                 << "Started manually from Diagnostics. Samples every 500 ms until Stop is pressed.\n";
             status_ = "Debug recording started. Reproduce the issue, then press Stop recording.";
         } catch (...) {
