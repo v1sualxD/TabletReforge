@@ -1,5 +1,11 @@
 # Changelog
 
+## TabletReforge 0.7.5
+
+- Fixes stash withdrawal when POEFixer does not expose the hovered item tooltip in either UI tree.
+- Reads the hovered item's copied text to verify its base type and leave Sanctified tablets in the stash; restores the saved clipboard formats before clicking.
+- Stops safely without clicking if item text cannot be confirmed or the clipboard cannot be preserved and restored.
+
 ## TabletReforge 0.6.9
 
 - Fixed movable-bench detection to match POEFixer's live path `Metadata/MiscellaneousObjects/Hideout/ReforgingBench`, with a live UI-label fallback.
