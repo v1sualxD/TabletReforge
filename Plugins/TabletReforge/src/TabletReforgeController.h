@@ -6,6 +6,7 @@
 #include "TabletStashDiscovery.h"
 #include <Windows.h>
 #include <chrono>
+#include <cstring>
 #include <fstream>
 #include <map>
 #include <optional>
@@ -19,7 +20,7 @@ class TabletReforgeController {
     using Clock = std::chrono::steady_clock;
     enum class Phase { Idle, InitialScan, Transfer, WaitTransfer, Forge, WaitForge, PlaceResult, WaitResult };
     enum class StashStage { Idle, PendingStart, NavigateTab, NavigateCategory, NavigatePage,
-        ReadPage, Pull, WaitPull, CheckTabletTooltip, AwaitBench, AwaitStash, Deposit, WaitDeposit, Finished,
+        ReadPage, Pull, WaitPull, CheckTabletTooltip, WaitTabletClipboard, AwaitBench, AwaitStash, Deposit, WaitDeposit, Finished,
         CloseStashForBench, WaitStashClosed, FindBench, WaitBenchOpen, ForgePass,
         CloseBenchForStash, WaitBenchClosed, FindStash, WaitStashOpen };
     Phase phase_ = Phase::Idle;
@@ -75,7 +76,124 @@ class TabletReforgeController {
     std::ofstream debugLog_;
     Clock::time_point debugStarted_{}, debugNextSample_{};
     std::string lastTooltipScanSummary_ = "not run";
+    struct ClipboardFormatSnapshot { UINT format = 0; std::vector<unsigned char> bytes; };
+    std::vector<ClipboardFormatSnapshot> clipboardBackup_;
+    DWORD clipboardSequenceBeforeCopy_ = 0;
+    Clock::time_point clipboardDeadline_{};
+    bool clipboardSnapshotValid_ = false, clipboardVerified_ = false;
 
+    bool BeginClipboardTabletRead(const PluginSDK::Context* c) {
+        clipboardBackup_.clear();
+        clipboardSnapshotValid_ = false;
+        if (!Foreground(c) || !Ready(c)) return false;
+        for (int key : {VK_CONTROL, VK_SHIFT, VK_MENU, VK_LWIN, VK_RWIN, VK_LBUTTON, VK_RBUTTON})
+            if (::GetAsyncKeyState(key) & 0x8000) return false;
+
+        if (!::OpenClipboard(nullptr)) return false;
+        bool captured = true;
+        UINT format = 0;
+        while ((format = ::EnumClipboardFormats(format)) != 0) {
+            HANDLE handle = ::GetClipboardData(format);
+            const SIZE_T size = handle ? ::GlobalSize(static_cast<HGLOBAL>(handle)) : 0;
+            if (!size) { captured = false; break; }
+            const auto* data = static_cast<const unsigned char*>(::GlobalLock(static_cast<HGLOBAL>(handle)));
+            if (!data) { captured = false; break; }
+            ClipboardFormatSnapshot entry;
+            entry.format = format;
+            entry.bytes.assign(data, data + size);
+            ::GlobalUnlock(static_cast<HGLOBAL>(handle));
+            clipboardBackup_.push_back(std::move(entry));
+        }
+        ::CloseClipboard();
+        if (!captured) { clipboardBackup_.clear(); return false; }
+
+        clipboardSnapshotValid_ = true;
+        clipboardSequenceBeforeCopy_ = ::GetClipboardSequenceNumber();
+        INPUT keys[4]{};
+        keys[0].type = INPUT_KEYBOARD; keys[0].ki.wVk = VK_LCONTROL;
+        keys[1].type = INPUT_KEYBOARD; keys[1].ki.wVk = 'C';
+        keys[2].type = INPUT_KEYBOARD; keys[2].ki.wVk = 'C'; keys[2].ki.dwFlags = KEYEVENTF_KEYUP;
+        keys[3].type = INPUT_KEYBOARD; keys[3].ki.wVk = VK_LCONTROL; keys[3].ki.dwFlags = KEYEVENTF_KEYUP;
+        if (::SendInput(4, keys, sizeof(INPUT)) != 4) {
+            INPUT release[2]{};
+            release[0].type = INPUT_KEYBOARD; release[0].ki.wVk = 'C'; release[0].ki.dwFlags = KEYEVENTF_KEYUP;
+            release[1].type = INPUT_KEYBOARD; release[1].ki.wVk = VK_LCONTROL; release[1].ki.dwFlags = KEYEVENTF_KEYUP;
+            ::SendInput(2, release, sizeof(INPUT));
+            RestoreClipboardSnapshot(::GetClipboardSequenceNumber());
+            return false;
+        }
+        clipboardDeadline_ = Clock::now() + std::chrono::seconds(2);
+        return true;
+    }
+    bool ReadCopiedTabletText(std::wstring& text, DWORD& sequence) {
+        sequence = ::GetClipboardSequenceNumber();
+        if (sequence == clipboardSequenceBeforeCopy_ || !::OpenClipboard(nullptr)) return false;
+        HANDLE handle = ::GetClipboardData(CF_UNICODETEXT);
+        if (handle) {
+            const auto* data = static_cast<const wchar_t*>(::GlobalLock(static_cast<HGLOBAL>(handle)));
+            if (data) { text.assign(data); ::GlobalUnlock(static_cast<HGLOBAL>(handle)); }
+        } else if ((handle = ::GetClipboardData(CF_TEXT)) != nullptr) {
+            const auto* data = static_cast<const char*>(::GlobalLock(static_cast<HGLOBAL>(handle)));
+            if (data) {
+                const int length = ::MultiByteToWideChar(CP_ACP, 0, data, -1, nullptr, 0);
+                if (length > 1) {
+                    std::wstring converted(static_cast<size_t>(length), L'\0');
+                    ::MultiByteToWideChar(CP_ACP, 0, data, -1, converted.data(), length);
+                    converted.resize(static_cast<size_t>(length - 1));
+                    text = std::move(converted);
+                }
+                ::GlobalUnlock(static_cast<HGLOBAL>(handle));
+            }
+        }
+        ::CloseClipboard();
+        return !text.empty();
+    }
+    bool RestoreClipboardSnapshot(DWORD expectedSequence) {
+        if (!clipboardSnapshotValid_) return true;
+        std::vector<HGLOBAL> handles;
+        handles.reserve(clipboardBackup_.size());
+        for (const auto& entry : clipboardBackup_) {
+            HGLOBAL memory = ::GlobalAlloc(GMEM_MOVEABLE, entry.bytes.size());
+            if (!memory) {
+                for (auto h : handles) ::GlobalFree(h);
+                return false;
+            }
+            void* destination = ::GlobalLock(memory);
+            if (!destination) {
+                ::GlobalFree(memory);
+                for (auto h : handles) ::GlobalFree(h);
+                return false;
+            }
+            std::memcpy(destination, entry.bytes.data(), entry.bytes.size());
+            ::GlobalUnlock(memory);
+            handles.push_back(memory);
+        }
+        if (!::OpenClipboard(nullptr)) {
+            for (auto h : handles) ::GlobalFree(h);
+            return false;
+        }
+        if (::GetClipboardSequenceNumber() != expectedSequence) {
+            ::CloseClipboard();
+            for (auto h : handles) ::GlobalFree(h);
+            clipboardBackup_.clear(); clipboardSnapshotValid_ = false;
+            return true; // A newer clipboard change belongs to the user; leave it untouched.
+        }
+        bool restored = ::EmptyClipboard() != FALSE;
+        for (size_t i = 0; restored && i < clipboardBackup_.size(); ++i) {
+            if (!::SetClipboardData(clipboardBackup_[i].format, handles[i])) restored = false;
+            else handles[i] = nullptr; // ownership transferred to the clipboard
+        }
+        ::CloseClipboard();
+        for (auto h : handles) if (h) ::GlobalFree(h);
+        clipboardBackup_.clear(); clipboardSnapshotValid_ = false;
+        return restored;
+    }
+    static std::string ClipboardAscii(const std::wstring& text) {
+        std::string result;
+        result.reserve(text.size());
+        for (wchar_t ch : text) result.push_back(ch >= 0x20 && ch <= 0x7e ? static_cast<char>(ch) : ' ');
+        return result;
+    }
     static bool ContainsSanctifiedText(const std::string& value) {
         return NormalizeIdentifier(value).find("sanctified") != std::string::npos;
     }
@@ -768,7 +886,7 @@ class TabletReforgeController {
             stashStage_ == StashStage::NavigateCategory || stashStage_ == StashStage::NavigatePage ||
             stashStage_ == StashStage::ReadPage || stashStage_ == StashStage::Pull ||
             stashStage_ == StashStage::WaitPull || stashStage_ == StashStage::CheckTabletTooltip ||
-            stashStage_ == StashStage::Deposit ||
+            stashStage_ == StashStage::WaitTabletClipboard || stashStage_ == StashStage::Deposit ||
             stashStage_ == StashStage::WaitDeposit;
         if (PumpInput(c)) return;
 
@@ -1020,13 +1138,61 @@ class TabletReforgeController {
             status_ = "Checking tablet properties before withdrawing...";
             return;
         }
+        if (stashStage_ == StashStage::WaitTabletClipboard) {
+            if (!stashPendingItem_ || bag != stashExpectedBag_) {
+                if (clipboardSnapshotValid_)
+                    RestoreClipboardSnapshot(::GetClipboardSequenceNumber());
+                Stop("Tablet inventory changed while checking its copied text."); return;
+            }
+            if (::GetClipboardSequenceNumber() == clipboardSequenceBeforeCopy_) {
+                if (now < clipboardDeadline_) { status_ = "Waiting for the game to copy the hovered tablet text..."; return; }
+                RestoreClipboardSnapshot(::GetClipboardSequenceNumber());
+                Stop("The game did not copy the hovered tablet text. No stash item was clicked."); return;
+            }
+            std::wstring copiedText;
+            DWORD copiedSequence = 0;
+            if (!ReadCopiedTabletText(copiedText, copiedSequence)) {
+                if (now < clipboardDeadline_) { status_ = "Reading the copied tablet text..."; return; }
+                RestoreClipboardSnapshot(::GetClipboardSequenceNumber());
+                Stop("Could not read the copied tablet text. No stash item was clicked."); return;
+            }
+            const auto normalizedText = NormalizeIdentifier(ClipboardAscii(copiedText));
+            const auto expectedBase = NormalizeIdentifier(stashPendingItem_->baseType);
+            const bool baseMatches = !expectedBase.empty() &&
+                normalizedText.find(expectedBase) != std::string::npos;
+            const bool isSanctified = normalizedText.find("sanctified") != std::string::npos;
+            const bool clipboardRestored = RestoreClipboardSnapshot(copiedSequence);
+            if (!clipboardRestored) {
+                Stop("Could not restore the clipboard safely. No stash item was clicked."); return;
+            }
+            if (!baseMatches) {
+                Stop("Copied item text did not match the hovered tablet. No stash item was clicked."); return;
+            }
+            if (isSanctified) {
+                stashSkippedAddresses_.insert(stashPendingItem_->address);
+                stashPendingItem_.reset(); stashStage_ = StashStage::ReadPage; stashActionAt_ = now;
+                status_ = "Sanctified tablet left in the stash; checking the next tablet...";
+                return;
+            }
+            clipboardVerified_ = true;
+            stashStage_ = StashStage::CheckTabletTooltip; stashActionAt_ = now;
+            status_ = "Tablet text verified; preparing the stash click...";
+            return;
+        }
         if (stashStage_ == StashStage::CheckTabletTooltip) {
             if (!stashPendingItem_ || bag != stashExpectedBag_) {
                 Stop("Tablet inventory changed while checking its properties."); return;
             }
-            const auto sanctified = ReadHoveredTabletSanctified(c, *stashPendingItem_);
+            std::optional<bool> sanctified;
+            if (clipboardVerified_) { clipboardVerified_ = false; sanctified = false; }
+            else sanctified = ReadHoveredTabletSanctified(c, *stashPendingItem_);
             if (!sanctified) {
-                Stop("Could not verify the hovered tablet tooltip. No item clicked; capture Diagnostics and share the report."); return;
+                if (!BeginClipboardTabletRead(c)) {
+                    Stop("Could not safely read the hovered tablet text from the clipboard. No item was clicked."); return;
+                }
+                stashStage_ = StashStage::WaitTabletClipboard; stashActionAt_ = now;
+                status_ = "Checking the tablet text to identify Sanctified items...";
+                return;
             }
             if (*sanctified) {
                 stashSkippedAddresses_.insert(stashPendingItem_->address);
@@ -1312,7 +1478,7 @@ public:
             debugStarted_ = Clock::now();
             debugNextSample_ = debugStarted_;
             debugRecording_ = true;
-            debugLog_ << "TabletReforge live debug capture 0.7.4\n"
+            debugLog_ << "TabletReforge live debug capture 0.7.5\n"
                 << "Started manually from Diagnostics. Samples every 500 ms until Stop is pressed.\n";
             status_ = "Debug recording started. Reproduce the issue, then press Stop recording.";
         } catch (...) {
@@ -1347,6 +1513,12 @@ public:
     const std::vector<TabletLabel>& Labels() const { return labels_; }
     const std::string& Status() const { return status_; }
     void Stop(const char* reason) {
+        if (clipboardSnapshotValid_) {
+            const DWORD current = ::GetClipboardSequenceNumber();
+            if (current != clipboardSequenceBeforeCopy_) RestoreClipboardSnapshot(current);
+            else { clipboardBackup_.clear(); clipboardSnapshotValid_ = false; }
+        }
+        clipboardVerified_ = false;
         ReleaseInput(); phase_ = Phase::Idle; pending_ = false; targets_.reset(); stashTargets_.reset();
         stashCycle_ = false; stashInputMode_ = false; stashStage_ = StashStage::Idle;
         stashPendingItem_.reset(); status_ = reason;
