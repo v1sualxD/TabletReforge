@@ -220,27 +220,23 @@ inline std::optional<TabletStashTargets> DiscoverTabletStash(
             [](const auto& a, const auto& b) { return a.CenterX() < b.CenterX(); });
         if (current.pages.size() != 6) continue;
 
-        // Collect occupied grid slots from the same cell geometry. Use unique
-        // logical coordinates to collapse nested controls sharing one tile.
+        // Only a tablet with a numeric use-count label is occupied. The game
+        // creates square UI controls for empty cells too, so counting every
+        // square made the UI appear to contain 96 items even when one slot was
+        // empty. The label is a child of the actual tablet cell in POEFixer's UI.
         std::set<std::pair<int, int>> slots;
         for (size_t i = 0; i < nodes.size(); ++i) {
-            const auto& tile = nodes[i];
-            if (i == *gridIndex || !Descendant(nodes, i, *gridIndex) ||
-                std::abs(tile.w - cell) > cell * .08f || std::abs(tile.h - cell) > cell * .08f)
+            const auto& label = nodes[i];
+            if (label.name != "tablet_use_label" || label.parent < 0 || !IsNumericText(label.text))
+                continue;
+            const auto& tile = nodes[static_cast<size_t>(label.parent)];
+            if (std::abs(tile.w - cell) > cell * .08f || std::abs(tile.h - cell) > cell * .08f)
                 continue;
             const int x = static_cast<int>(std::lround((tile.CenterX() - grid.x) / cell - .5f));
             const int y = static_cast<int>(std::lround((tile.CenterY() - grid.y) / cell - .5f));
-            if (x >= 0 && x < 12 && y >= 0 && y < 8) slots.emplace(x, y);
-        }
-        for (const auto& slot : slots) {
-            const float x = grid.x + (slot.first + .5f) * cell;
-            const float y = grid.y + (slot.second + .5f) * cell;
-            const auto tile = std::find_if(nodes.begin(), nodes.end(), [&](const auto& node) {
-                return std::abs(node.CenterX() - x) < cell * .1f &&
-                    std::abs(node.CenterY() - y) < cell * .1f &&
-                    std::abs(node.w - cell) < cell * .08f && std::abs(node.h - cell) < cell * .08f;
-            });
-            if (tile != nodes.end()) current.occupiedSlots.push_back({slot.first, slot.second, *tile});
+            if (x < 0 || x >= 12 || y < 0 || y >= 8) continue;
+            if (!slots.emplace(x, y).second) continue;
+            current.occupiedSlots.push_back({x, y, tile});
         }
 
         // The Tablet subtab is a fixed sibling control above the category row.
