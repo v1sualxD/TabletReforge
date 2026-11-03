@@ -82,7 +82,7 @@ class TabletReforgeController {
     int activeInputPulseMs_ = 40;
     static constexpr int kNormalClickPulseMs = 40;
     static constexpr int kHoverBeforeClickMs = 450;
-    static constexpr int kStashTabletHoverMs = 238;
+    static constexpr int kStashTabletHoverMs = 190;
     enum class WorldClickPhase { Idle, Hover, ButtonDown };
     WorldClickPhase worldClickPhase_ = WorldClickPhase::Idle;
     POINT worldClickScreen_{};
@@ -263,21 +263,27 @@ class TabletReforgeController {
         }
         return identityCache_;
     }
-    static bool SameTabletIdentity(const ReforgeItem& a, const ReforgeItem& b) {
-        // Grid coordinates can change while the inventory/bench UI refreshes.
-        // Address and item properties identify the tablet; x/y are only its current placement.
-        return a.address == b.address && a.path == b.path && a.baseType == b.baseType &&
-            a.rarity == b.rarity && a.level == b.level && a.identified == b.identified &&
+    static bool SameTabletProperties(const ReforgeItem& a, const ReforgeItem& b) {
+        // POEFixer can rebuild item objects while rescanning. Runtime addresses and
+        // grid coordinates are transient; base/path and item properties are stable.
+        return a.path == b.path && a.baseType == b.baseType && a.rarity == b.rarity &&
+            a.level == b.level && a.identified == b.identified &&
             a.corrupted == b.corrupted && a.sanctified == b.sanctified;
     }
     static bool SameBagContents(const std::map<uintptr_t, ReforgeItem>& a,
                                 const std::map<uintptr_t, ReforgeItem>& b) {
         if (a.size() != b.size()) return false;
+        std::vector<const ReforgeItem*> unmatched;
+        unmatched.reserve(b.size());
+        for (const auto& [address, item] : b) { (void)address; unmatched.push_back(&item); }
         for (const auto& [address, item] : a) {
-            const auto found = b.find(address);
-            if (found == b.end() || !SameTabletIdentity(item, found->second)) return false;
+            (void)address;
+            const auto found = std::find_if(unmatched.begin(), unmatched.end(),
+                [&](const ReforgeItem* other) { return SameTabletProperties(item, *other); });
+            if (found == unmatched.end()) return false;
+            unmatched.erase(found);
         }
-        return true;
+        return unmatched.empty();
     }
     bool ReforgeCandidate(const ReforgeItem& item, uint8_t rarityMask,
                           const std::vector<TabletHelperConfig::TypeConfig>& typeRules,
@@ -1844,7 +1850,7 @@ public:
             debugStarted_ = Clock::now();
             debugNextSample_ = debugStarted_;
             debugRecording_ = true;
-            debugLog_ << "TabletReforge live debug capture 0.9.1\n"
+            debugLog_ << "TabletReforge live debug capture 0.9.3\n"
                 << "Started manually from Diagnostics. Samples every 500 ms until Stop is pressed.\n";
             status_ = "Debug recording started. Reproduce the issue, then press Stop recording.";
         } catch (...) {
@@ -2040,10 +2046,30 @@ public:
         if (phase_ == Phase::Transfer) {
             if (!SameBagContents(bag, expected_)) { Stop("Stopped: inventory changed outside the sequence."); return; }
             const auto target = batches_[batch_][item_];
-            const auto item = std::find_if(inv.Items.begin(), inv.Items.end(), [&](const auto& i) { return i.Address == target.address; });
-            const auto current = bag.find(target.address);
-            if (item == inv.Items.end() || current == bag.end() || !SameTabletIdentity(current->second, target) || !ReforgeCandidate(current->second, rarityMask, typeRules)) { Stop("Stopped: selected tablet is missing or no longer eligible."); return; }
-            const auto rect = ResolveItemRect(inv, *item, HasItemRects(inv), true, static_cast<float>(width_), static_cast<float>(height_));
+            auto item = std::find_if(inv.Items.begin(), inv.Items.end(), [&](const auto& i) {
+                const auto found = bag.find(i.Address);
+                return i.Address == target.address && found != bag.end() &&
+                    SameTabletProperties(found->second, target) &&
+                    ReforgeCandidate(found->second, rarityMask, typeRules, false);
+            });
+            if (item == inv.Items.end()) {
+                item = std::find_if(inv.Items.begin(), inv.Items.end(), [&](const auto& i) {
+                    const auto found = bag.find(i.Address);
+                    return found != bag.end() && i.SlotX == target.x && i.SlotY == target.y &&
+                        SameTabletProperties(found->second, target) &&
+                        ReforgeCandidate(found->second, rarityMask, typeRules, false);
+                });
+            }
+            if (item == inv.Items.end()) {
+                item = std::find_if(inv.Items.begin(), inv.Items.end(), [&](const auto& i) {
+                    const auto found = bag.find(i.Address);
+                    return found != bag.end() && SameTabletProperties(found->second, target) &&
+                        ReforgeCandidate(found->second, rarityMask, typeRules, false);
+                });
+            }
+            if (item == inv.Items.end()) { Stop("Stopped: selected tablet is missing or no longer eligible."); return; }
+            const auto rect = ResolveItemRect(inv, *item, HasItemRects(inv), true,
+                static_cast<float>(width_), static_cast<float>(height_));
             if (!rect || !Click(c, {static_cast<LONG>(rect->x + rect->w / 2), static_cast<LONG>(rect->y + rect->h / 2)}, true, inputPulseMs_)) {
                 Stop("Stopped: input was not sent. Release modifier keys and mouse buttons."); return;
             }
@@ -2051,7 +2077,13 @@ public:
             Wait(c, Phase::WaitTransfer, snapshot.ScanStamp); return;
         }
         if (phase_ == Phase::WaitTransfer) {
-            auto desired = expected_; desired.erase(batches_[batch_][item_].address);
+            auto desired = expected_;
+            const auto& transferred = batches_[batch_][item_];
+            const auto expectedItem = std::find_if(desired.begin(), desired.end(), [&](const auto& entry) {
+                return SameTabletProperties(entry.second, transferred);
+            });
+            if (expectedItem == desired.end()) { Stop("Stopped: reforge transfer plan no longer matches the inventory."); return; }
+            desired.erase(expectedItem);
             if (SameBagContents(bag, expected_)) return;
             if (!SameBagContents(bag, desired)) { Stop("Stopped: unexpected item transfer. Check the bench."); return; }
             expected_ = std::move(desired);
@@ -2077,8 +2109,11 @@ public:
             if (SameBagContents(bag, expected_)) return;
             auto additions = bag;
             for (const auto& [address, identity] : expected_) {
-                const auto item = additions.find(address);
-                if (item == additions.end() || !SameTabletIdentity(item->second, identity)) { Stop("Stopped: unexpected inventory contents."); return; }
+                (void)address;
+                const auto item = std::find_if(additions.begin(), additions.end(), [&](const auto& entry) {
+                    return SameTabletProperties(entry.second, identity);
+                });
+                if (item == additions.end()) { Stop("Stopped: unexpected inventory contents."); return; }
                 additions.erase(item);
             }
             if (additions.size() != 1 || TabletCategory(additions.begin()->second) != TabletCategory(batches_[batch_][0]) ||
