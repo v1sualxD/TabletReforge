@@ -1700,7 +1700,7 @@ class TabletReforgeController {
                     stashSessionAddresses_.erase(address);
                     stashExpectedBag_ = bag; stashDepositItem_.reset(); stashStage_ = StashStage::Deposit;
                     stashActionAt_ = now;
-                    status_ = "Returning inventory tablets to stash...";
+                    status_ = "Returning inventory items to stash...";
                 } else {
                     // A newer scan may still precede the queued click/server update.
                     // Do not reject an unchanged bag or click the next tablet yet.
@@ -1725,8 +1725,11 @@ class TabletReforgeController {
             }
 
             const auto tablet = std::find_if(snapshot.Value.Items.begin(), snapshot.Value.Items.end(), [&](const auto& entry) {
-                if (!bag.contains(entry.Address) || !LooksLikeTablet(entry.Path, entry.BaseTypeName)) return false;
+                if (!bag.contains(entry.Address)) return false;
+                // Final return empties the whole bag through the game's Ctrl-click routing.
                 if (!stashDepositIneligibleOnly_) return true;
+                // The initial eligibility cleanup still touches only tablets.
+                if (!LooksLikeTablet(entry.Path, entry.BaseTypeName)) return false;
                 const auto identity = bag.find(entry.Address);
                 return identity == bag.end() ||
                     !ReforgeCandidate(identity->second, stashRarityMask_, stashTypeRules_, false);
@@ -1742,13 +1745,13 @@ class TabletReforgeController {
                     status_ = "Filtered-out tablets returned from your inventory. Continuing the stash scan...";
                 } else if (stashFromExhaustion_) {
                     stashStage_ = StashStage::Finished; stashCycle_ = false; stashInputMode_ = false;
-                    status_ = "Finished: all tablets, results, and leftovers returned to the Tablet stash.";
+                    status_ = "Finished: all inventory items returned to stash.";
                 } else {
                     if (stashCategory_ >= stashCategories_.size()) stashCategory_ = stashPage_ = 0;
                     stashUiCategory_ = stashUiPage_ = -1;
                     stashTabSelected_ = true; stashStage_ = StashStage::NavigateCategory;
                     stashActionAt_ = now;
-                    status_ = "All inventory tablets returned. Continuing the selected stash scan...";
+                    status_ = "All inventory items returned. Continuing the selected stash scan...";
                 }
                 return;
             }
@@ -1760,10 +1763,10 @@ class TabletReforgeController {
                 static_cast<float>(width_), static_cast<float>(height_));
             if (!rect || !Click(c, {static_cast<LONG>(rect->x + rect->w / 2),
                 static_cast<LONG>(rect->y + rect->h / 2)}, true)) {
-                Stop("Could not safely Ctrl-click an inventory tablet into the Tablet stash."); return;
+                Stop("Could not safely Ctrl-click an inventory item into stash."); return;
             }
             stashDepositRetries_ = 0;
-            status_ = "Returning inventory tablets to stash (" + std::to_string(bag.size()) + " inventory items remaining)...";
+            status_ = "Returning inventory items to stash (" + std::to_string(bag.size()) + " inventory items remaining)...";
             stashExpectedBag_ = bag; stashDepositItem_ = tablet->Address; stashBagStamp_ = snapshot.ScanStamp;
             stashStage_ = StashStage::WaitDeposit; stashActionAt_ = now; c->Inventory.Scan(1); return;
         }
@@ -1904,7 +1907,7 @@ public:
             debugStarted_ = Clock::now();
             debugNextSample_ = debugStarted_;
             debugRecording_ = true;
-            debugLog_ << "TabletReforge live debug capture 1.0.0\n"
+            debugLog_ << "TabletReforge live debug capture 1.0.1\n"
                 << "Started manually from Diagnostics. Samples every 500 ms until Stop is pressed.\n";
             status_ = "Debug recording started. Reproduce the issue, then press Stop recording.";
         } catch (...) {
