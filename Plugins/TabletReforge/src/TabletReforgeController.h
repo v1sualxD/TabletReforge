@@ -39,7 +39,7 @@ class TabletReforgeController {
     StashStage stashStage_ = StashStage::Idle;
     bool stashCycle_ = false, stashInputMode_ = false, stashTabSelected_ = false, stashDepositInit_ = false;
     bool stashInventorySeeded_ = false;
-    static constexpr int kInitialStashOpenDelayMs = 850;
+    static constexpr int kInitialStashOpenDelayMs = 765;
     bool stashResumeForDeposit_ = false;
     uint8_t stashRarityMask_ = 0;
     std::vector<std::string> stashCategories_;
@@ -53,6 +53,8 @@ class TabletReforgeController {
     int stashUiCategory_ = -1, stashUiPage_ = -1;
     uint64_t stashBagStamp_ = 0;
     int stashPullRetries_ = 0;
+    int stashEmptyConfirmCategory_ = -1, stashEmptyConfirmPage_ = -1;
+    Clock::time_point stashEmptyConfirmAt_{};
     Clock::time_point stashActionAt_{}, stashPageRefreshAt_{};
     bool stashFromExhaustion_ = false;
     std::map<uintptr_t, ReforgeItem> expected_;
@@ -65,10 +67,10 @@ class TabletReforgeController {
         const int bounded = std::clamp(delayMs, 10, 1900);
         return std::clamp((bounded * 10 + 6) / 13, 10, 1900);
     }
-    static constexpr int kActionDelayMs = 540;
+    static constexpr int kActionDelayMs = 486;
     int inputTransferDelayMs_ = 540;
     // Let the reforger finish producing its result before the first pickup click.
-    static constexpr int kForgeResultReadyPauseMs = 1700;
+    static constexpr int kForgeResultReadyPauseMs = 1615;
     enum class InputPhase { Idle, Hover, ModifierDown, ButtonDown, ButtonUp, ModifierUp };
     InputPhase inputPhase_ = InputPhase::Idle;
     bool ownedCtrl_ = false, ownedButton_ = false, queuedCtrl_ = false;
@@ -76,7 +78,7 @@ class TabletReforgeController {
     int inputPulseMs_ = 40;
     int activeInputPulseMs_ = 40;
     static constexpr int kNormalClickPulseMs = 40;
-    static constexpr int kHoverBeforeClickMs = 500;
+    static constexpr int kHoverBeforeClickMs = 450;
     enum class WorldClickPhase { Idle, Hover, ButtonDown };
     WorldClickPhase worldClickPhase_ = WorldClickPhase::Idle;
     POINT worldClickScreen_{};
@@ -376,7 +378,7 @@ class TabletReforgeController {
         if (!debugRecording_ || !debugLog_) return;
         const auto now = Clock::now();
         if (now < debugNextSample_) return;
-        debugNextSample_ = now + std::chrono::milliseconds(500);
+        debugNextSample_ = now + std::chrono::milliseconds(450);
         try {
             POINT screen{};
             const bool cursorValid = ::GetCursorPos(&screen) != FALSE;
@@ -987,9 +989,9 @@ class TabletReforgeController {
         if (PumpWorldClick(c)) return;
 
         const auto now = Clock::now();
-        if (now - stashActionAt_ < std::chrono::milliseconds(120)) return;
+        if (now - stashActionAt_ < std::chrono::milliseconds(108)) return;
         if (stashStage_ == StashStage::CheckTabletTooltip &&
-            now - stashActionAt_ < std::chrono::milliseconds(180)) return;
+            now - stashActionAt_ < std::chrono::milliseconds(162)) return;
         if (stashStage_ == StashStage::CloseStashForBench) {
             if (TabletStashPanelOpen(c)) {
                 if (!PressEscape(c)) { status_ = "Waiting to close the Tablet stash safely..."; return; }
@@ -1011,7 +1013,7 @@ class TabletReforgeController {
         if (stashStage_ == StashStage::WaitBenchOpen) {
             // Give the character time to reach the prop. If the panel did not open,
             // retry the interaction after a pause instead of clicking rapidly.
-            if (now - stashActionAt_ < std::chrono::milliseconds(1400)) return;
+            if (now - stashActionAt_ < std::chrono::milliseconds(1260)) return;
             if (!AttachBench(c, directory, false) || !Ready(c)) {
                 const auto point = FindBenchScreenPoint(c);
                 if (point && ClickWorldPoint(c, *point)) {
@@ -1186,13 +1188,13 @@ class TabletReforgeController {
             // inventory enumeration can temporarily omit Grid.Valid after a page switch.
             const bool refreshPage = stashStage_ == StashStage::ReadPage &&
                 (stashPageRefreshAt_ == Clock::time_point{} ||
-                    now - stashPageRefreshAt_ >= std::chrono::milliseconds(400));
+                    now - stashPageRefreshAt_ >= std::chrono::milliseconds(360));
             if (refreshPage || !stashTargets_) {
                 const bool attached = AttachTabletStash(c, directory, false);
                 if (refreshPage) stashPageRefreshAt_ = now;
                 if (!attached) {
                     if (stashStage_ == StashStage::ReadPage &&
-                        now - stashActionAt_ < std::chrono::milliseconds(2200)) {
+                        now - stashActionAt_ < std::chrono::milliseconds(1980)) {
                         status_ = "Waiting for the selected Tablet stash page to finish updating...";
                         c->Inventory.Scan(1);
                         return;
@@ -1260,7 +1262,7 @@ class TabletReforgeController {
             }
             const auto match = MatchVisibleStashPage(*stashTargets_, c->Inventory.GetAll(), stashCategories_[stashCategory_]);
             if (match.state == TabletStashPageMatchState::Ambiguous || match.state == TabletStashPageMatchState::Missing) {
-                if (now - stashActionAt_ < std::chrono::milliseconds(1800)) {
+                if (now - stashActionAt_ < std::chrono::milliseconds(1620)) {
                     status_ = match.state == TabletStashPageMatchState::Ambiguous
                         ? "Waiting for POEFixer to publish one unambiguous Tablet stash page..."
                         : "Waiting for POEFixer to publish the selected Tablet stash page...";
@@ -1272,7 +1274,28 @@ class TabletReforgeController {
                     : "The visible Tablet stash page does not match POEFixer's item slots. No item clicked.");
                 return;
             }
-            if (match.state == TabletStashPageMatchState::Empty) { AdvanceStashPage(c); return; }
+            if (match.state == TabletStashPageMatchState::Empty) {
+                if (stashEmptyConfirmCategory_ != static_cast<int>(stashCategory_) ||
+                    stashEmptyConfirmPage_ != static_cast<int>(stashPage_)) {
+                    stashEmptyConfirmCategory_ = static_cast<int>(stashCategory_);
+                    stashEmptyConfirmPage_ = static_cast<int>(stashPage_);
+                    stashEmptyConfirmAt_ = now;
+                    stashPageRefreshAt_ = {};
+                    status_ = "Confirming the Tablet stash page is really empty...";
+                    c->Inventory.Scan(1);
+                    return;
+                }
+                if (now - stashEmptyConfirmAt_ < std::chrono::milliseconds(360)) {
+                    c->Inventory.Scan(1);
+                    return;
+                }
+                stashEmptyConfirmCategory_ = stashEmptyConfirmPage_ = -1;
+                stashEmptyConfirmAt_ = {};
+                AdvanceStashPage(c);
+                return;
+            }
+            stashEmptyConfirmCategory_ = stashEmptyConfirmPage_ = -1;
+            stashEmptyConfirmAt_ = {};
             std::vector<const PluginSDK::InventoryItem*> candidates;
             for (const auto& item : match.inventory.Items) {
                                 ParsedTablet parsed;
@@ -1412,9 +1435,9 @@ class TabletReforgeController {
                 return true;
             };
             if (snapshot.ScanStamp == stashBagStamp_) {
-                if (now - stashActionAt_ < std::chrono::milliseconds(650)) { c->Inventory.Scan(1); return; }
+                if (now - stashActionAt_ < std::chrono::milliseconds(585)) { c->Inventory.Scan(1); return; }
                 if (retryUnchangedWithdrawal()) return;
-                if (now - stashActionAt_ < std::chrono::milliseconds(2500)) {
+                if (now - stashActionAt_ < std::chrono::milliseconds(2250)) {
                     status_ = "Waiting for POEFixer to confirm the stash withdrawal...";
                     c->Inventory.Scan(1);
                     return;
@@ -1461,7 +1484,13 @@ class TabletReforgeController {
         if (stashStage_ == StashStage::Deposit || stashStage_ == StashStage::WaitDeposit) {
             if (!stashDepositInit_) { stashExpectedBag_ = bag; stashDepositInit_ = true; }
             if (stashStage_ == StashStage::WaitDeposit) {
-                if (snapshot.ScanStamp == stashBagStamp_) { c->Inventory.Scan(1); return; }
+                if (snapshot.ScanStamp == stashBagStamp_) {
+                    if (now - stashActionAt_ < std::chrono::milliseconds(2250)) {
+                        c->Inventory.Scan(1); return;
+                    }
+                    Stop("Stash Ctrl-click did not return the tablet. Check the stash and inventory before restarting.");
+                    return;
+                }
                 if (bag.size() + 1 != stashExpectedBag_.size()) {
                     Stop("Stash deposit did not remove exactly one inventory item."); return;
                 }
@@ -1472,79 +1501,42 @@ class TabletReforgeController {
                 }
                 for (const auto& [itemAddress, identity] : remaining) {
                     const auto it = bag.find(itemAddress);
-                    if (it == bag.end() || it->second != identity) { Stop("Inventory changed during stash deposit."); return; }
+                    if (it == bag.end() || it->second != identity) {
+                        Stop("Inventory changed during stash deposit."); return;
+                    }
                 }
                 stashSessionAddresses_.erase(address);
                 stashExpectedBag_ = bag; stashDepositItem_.reset(); stashStage_ = StashStage::Deposit;
                 stashActionAt_ = now;
             }
-            const bool hasSessionItem = std::any_of(snapshot.Value.Items.begin(), snapshot.Value.Items.end(), [&](const auto& entry) {
-                return stashSessionAddresses_.contains(entry.Address);
+
+            const auto tablet = std::find_if(snapshot.Value.Items.begin(), snapshot.Value.Items.end(), [&](const auto& entry) {
+                return bag.contains(entry.Address) && LooksLikeTablet(entry.Path, entry.BaseTypeName);
             });
-            if (!hasSessionItem) {
+            if (tablet == snapshot.Value.Items.end()) {
                 if (stashFromExhaustion_) {
                     stashStage_ = StashStage::Finished; stashCycle_ = false; stashInputMode_ = false;
-                    status_ = "Finished: all selected stash pages were processed; results and leftovers returned.";
+                    status_ = "Finished: all tablets, results, and leftovers returned to the Tablet stash.";
                 } else {
-                    // Resume exactly where the scan filled the inventory. Restarting
-                    // at category zero can starve later selected categories when the
-                    // first category contains enough tablets to fill every trip.
                     if (stashCategory_ >= stashCategories_.size()) stashCategory_ = stashPage_ = 0;
                     stashUiCategory_ = stashUiPage_ = -1;
                     stashTabSelected_ = true; stashStage_ = StashStage::NavigateCategory;
-                    stashActionAt_ = now; status_ = "Results returned. Continuing the selected stash scan...";
+                    stashActionAt_ = now;
+                    status_ = "All inventory tablets returned. Continuing the selected stash scan...";
                 }
                 return;
             }
-            const auto item = std::find_if(snapshot.Value.Items.begin(), snapshot.Value.Items.end(), [&](const auto& entry) {
-                return stashSessionAddresses_.contains(entry.Address) && bag.find(entry.Address) != bag.end();
-            });
-            if (item == snapshot.Value.Items.end() || !LooksLikeTablet(item->Path, item->BaseTypeName)) {
-                Stop("Only session tablets can be returned automatically; unexpected inventory item found."); return;
-            }
-            const std::string category = ClassifyFromText(item->Path, item->BaseTypeName);
-            const auto categoryIt = std::find(StashCategoryOrder.begin(), StashCategoryOrder.end(), category);
-            if (categoryIt == StashCategoryOrder.end()) { Stop("Could not identify the result tablet category for stash return."); return; }
-            const size_t categoryIndex = static_cast<size_t>(categoryIt - StashCategoryOrder.begin());
-            if (stashUiCategory_ != static_cast<int>(categoryIndex)) {
-                const auto& button = stashTargets_->categories[categoryIndex];
-                if (!Click(c, {static_cast<LONG>(button.CenterX()), static_cast<LONG>(button.CenterY())}, false)) {
-                    Stop("Could not select the result's stash category."); return;
-                }
-                stashUiCategory_ = static_cast<int>(categoryIndex); stashUiPage_ = -1; stashActionAt_ = now; return;
-            }
-            if (stashUiPage_ < 0) {
-                stashUiPage_ = 0;
-                const auto& page = stashTargets_->pages[0];
-                if (!Click(c, {static_cast<LONG>(page.CenterX()), static_cast<LONG>(page.CenterY())}, false)) {
-                    Stop("Could not select a stash destination page."); return;
-                }
-                stashActionAt_ = now; return;
-            }
-            const auto pageMatch = MatchVisibleStashPage(*stashTargets_, c->Inventory.GetAll(), category);
-            // Empty pages are valid deposit targets. Non-empty pages need a unique
-            // page-to-inventory match before we can decide whether they have room.
-            if (pageMatch.state == TabletStashPageMatchState::Ambiguous || pageMatch.state == TabletStashPageMatchState::Missing) {
-                Stop("Could not verify Tablet stash space for returning results."); return;
-            }
-            if (pageMatch.state == TabletStashPageMatchState::Matched && pageMatch.inventory.Items.size() >= 96) {
-                if (stashUiPage_ < 5) {
-                    const size_t nextPage = static_cast<size_t>(stashUiPage_ + 1);
-                    const auto& page = stashTargets_->pages[nextPage];
-                    if (!Click(c, {static_cast<LONG>(page.CenterX()), static_cast<LONG>(page.CenterY())}, false)) {
-                        Stop("Could not find free space on another stash page."); return;
-                    }
-                    stashUiPage_ = static_cast<int>(nextPage); stashActionAt_ = now; return;
-                }
-                Stop("All six pages of this Tablet category appear full. Free a stash slot and restart."); return;
-            }
-            const auto rect = ResolveItemRect(snapshot.Value, *item, HasItemRects(snapshot.Value), true,
+
+            // Ctrl-clicking a tablet from the inventory lets the game place it
+            // automatically in the open Tablet stash. No category or destination
+            // page scan is needed for deposits.
+            const auto rect = ResolveItemRect(snapshot.Value, *tablet, HasItemRects(snapshot.Value), true,
                 static_cast<float>(width_), static_cast<float>(height_));
             if (!rect || !Click(c, {static_cast<LONG>(rect->x + rect->w / 2),
                 static_cast<LONG>(rect->y + rect->h / 2)}, true)) {
-                Stop("Could not safely Ctrl-click a result back into the stash."); return;
+                Stop("Could not safely Ctrl-click an inventory tablet into the Tablet stash."); return;
             }
-            stashExpectedBag_ = bag; stashDepositItem_ = item->Address; stashBagStamp_ = snapshot.ScanStamp;
+            stashExpectedBag_ = bag; stashDepositItem_ = tablet->Address; stashBagStamp_ = snapshot.ScanStamp;
             stashStage_ = StashStage::WaitDeposit; stashActionAt_ = now; c->Inventory.Scan(1); return;
         }
     }
