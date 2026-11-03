@@ -1,4 +1,4 @@
-# TabletReforge 0.7.6
+# TabletReforge 0.7.7
 
 An English-only POEFixer plugin for reforging Path of Exile 2 tablets. Based on TabletHelper by Omer Faruk ARPA and POEFixer; distributed under GPL-3.0.
 
@@ -9,7 +9,7 @@ An English-only POEFixer plugin for reforging Path of Exile 2 tablets. Based on 
 3. It withdraws eligible identified Magic or Rare tablets, closes the stash, detects and opens the movable Reforging Bench, and reforges groups of three from the same category and rarity.
 4. It closes the bench, reopens the stash, returns results and leftovers, then repeats until no compatible trio remains. Press **Esc** to cancel.
 
-Normal, unidentified, corrupted, Sanctified, and below-threshold tablets are excluded. Before withdrawing a candidate, the plugin checks its live tooltip. If POEFixer does not expose it in either UI tree, the plugin copies the hovered item's text with Ctrl+C, verifies the base name and Sanctified marker, then restores the clipboard contents it saved. Sanctified tablets stay in the stash. If the copied text cannot be verified or the clipboard cannot be safely preserved and restored, the plugin stops without clicking. Tablets matching selected keep mods remain in the stash. Only items withdrawn during this run and their results are returned. After each bench trip, scanning resumes at the same stash category and page, so an abundant early category cannot starve later selected categories. Stash interaction pacing has been shortened to make withdrawals faster.
+Normal, unidentified, corrupted, Sanctified, and below-threshold tablets are excluded. Before withdrawing a candidate, the plugin checks its live tooltip. If POEFixer does not expose it in either UI tree, the plugin copies the hovered item's text with Ctrl+C, verifies the base name and Sanctified marker, then restores the clipboard contents it saved. Sanctified tablets stay in the stash. If the copied text cannot be verified or the clipboard cannot be safely preserved and restored, the plugin stops without clicking. Tablets matching selected keep mods remain in the stash. Only items withdrawn during this run and their results are returned. After each bench trip, scanning resumes at the same stash category and page, so an abundant early category cannot starve later selected categories. Stash interaction pacing has been shortened to make withdrawals faster. After reforging, the plugin waits 1.7 seconds before collecting the result.
 
 ## Diagnostics
 
