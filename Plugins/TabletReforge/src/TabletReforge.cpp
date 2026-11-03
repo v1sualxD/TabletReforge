@@ -38,9 +38,9 @@ uint8_t MakeRarityMask(bool magic, bool rare) {
 POEFIXER_PLUGIN_INFO(
     "TabletReforge",
     "Tablet Reforge",
-    "0.8.0",
+    "0.8.1",
     "TabletReforge contributors; Omer Faruk ARPA; POEFixer",
-    "Reforge identified tablets by rarity in matching category trios, collect results without reusing unidentified tablets, and display tablet types.")
+    "Reforge identified tablets by rarity in matching category trios, wait for output to stabilize before pickup, collect results without reusing unidentified tablets, and display tablet types.")
 
 class TabletReforgePlugin : public PluginSDK::Plugin {
     TabletHelper::TabletReforgeController controller_;
