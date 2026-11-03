@@ -86,7 +86,7 @@ class TabletReforgeController {
     int activeInputPulseMs_ = 40;
     static constexpr int kNormalClickPulseMs = 40;
     static constexpr int kHoverBeforeClickMs = 293;
-    static constexpr int kStashTabletHoverMs = 124;
+    static constexpr int kStashTabletHoverMs = 62;
     enum class WorldClickPhase { Idle, Hover, ButtonDown };
     WorldClickPhase worldClickPhase_ = WorldClickPhase::Idle;
     POINT worldClickScreen_{};
@@ -933,7 +933,7 @@ class TabletReforgeController {
         // Stash and bench UI clicks keep a steady pulse and hover pause.
         activeInputPulseMs_ = pulseMs > 0 ? std::clamp(pulseMs, 12, 40) : kNormalClickPulseMs;
         inputDue_ = Clock::now() + std::chrono::milliseconds(
-            hoverMs > 0 ? std::clamp(hoverMs, 100, kHoverBeforeClickMs) : kHoverBeforeClickMs);
+            hoverMs > 0 ? std::clamp(hoverMs, 50, kHoverBeforeClickMs) : kHoverBeforeClickMs);
         return true;
     }
     void ReleaseInput() {
@@ -1092,15 +1092,18 @@ class TabletReforgeController {
         if (Clock::now() >= nextStashScan_) {
             c->Inventory.Scan(1);
             if (stashInventoryId_ > 0 && TabletStashPanelOpen(c)) c->Inventory.Scan(stashInventoryId_);
-            nextStashScan_ = Clock::now() + std::chrono::milliseconds(250);
+            nextStashScan_ = Clock::now() + std::chrono::milliseconds(125);
         }
         if (PumpInput(c)) return;
         if (PumpWorldClick(c)) return;
 
         const auto now = Clock::now();
-        if (now - stashActionAt_ < std::chrono::milliseconds(70)) return;
+        if (now - stashActionAt_ < std::chrono::milliseconds(
+            (stashStage_ == StashStage::ReadPage || stashStage_ == StashStage::Pull ||
+             stashStage_ == StashStage::CheckTabletTooltip || stashStage_ == StashStage::WaitTabletClipboard ||
+             stashStage_ == StashStage::WaitPull) ? 35 : 70)) return;
         if (stashStage_ == StashStage::CheckTabletTooltip &&
-            now - stashActionAt_ < std::chrono::milliseconds(250)) return;
+            now - stashActionAt_ < std::chrono::milliseconds(125)) return;
         if (stashStage_ == StashStage::CloseStashForBench) {
             if (TabletStashPanelOpen(c)) {
                 if (!PressEscape(c)) { status_ = "Waiting to close the Tablet stash safely..."; return; }
@@ -1289,7 +1292,10 @@ class TabletReforgeController {
             }
             stashStage_ = StashStage::NavigateTab; stashActionAt_ = now;
         }
-        if (now - stashActionAt_ < std::chrono::milliseconds(70)) return;
+        if (now - stashActionAt_ < std::chrono::milliseconds(
+            (stashStage_ == StashStage::ReadPage || stashStage_ == StashStage::Pull ||
+             stashStage_ == StashStage::CheckTabletTooltip || stashStage_ == StashStage::WaitTabletClipboard ||
+             stashStage_ == StashStage::WaitPull) ? 35 : 70)) return;
 
         if (stashStage_ == StashStage::NavigateTab || stashStage_ == StashStage::NavigateCategory ||
             stashStage_ == StashStage::NavigatePage || stashStage_ == StashStage::ReadPage ||
@@ -1907,7 +1913,7 @@ public:
             debugStarted_ = Clock::now();
             debugNextSample_ = debugStarted_;
             debugRecording_ = true;
-            debugLog_ << "TabletReforge live debug capture 0.9.7\n"
+            debugLog_ << "TabletReforge live debug capture 0.9.8\n"
                 << "Started manually from Diagnostics. Samples every 500 ms until Stop is pressed.\n";
             status_ = "Debug recording started. Reproduce the issue, then press Stop recording.";
         } catch (...) {
