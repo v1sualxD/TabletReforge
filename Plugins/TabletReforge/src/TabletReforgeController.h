@@ -263,6 +263,22 @@ class TabletReforgeController {
         }
         return identityCache_;
     }
+    static bool SameTabletIdentity(const ReforgeItem& a, const ReforgeItem& b) {
+        // Grid coordinates can change while the inventory/bench UI refreshes.
+        // Address and item properties identify the tablet; x/y are only its current placement.
+        return a.address == b.address && a.path == b.path && a.baseType == b.baseType &&
+            a.rarity == b.rarity && a.level == b.level && a.identified == b.identified &&
+            a.corrupted == b.corrupted && a.sanctified == b.sanctified;
+    }
+    static bool SameBagContents(const std::map<uintptr_t, ReforgeItem>& a,
+                                const std::map<uintptr_t, ReforgeItem>& b) {
+        if (a.size() != b.size()) return false;
+        for (const auto& [address, item] : a) {
+            const auto found = b.find(address);
+            if (found == b.end() || !SameTabletIdentity(item, found->second)) return false;
+        }
+        return true;
+    }
     bool ReforgeCandidate(const ReforgeItem& item, uint8_t rarityMask,
                           const std::vector<TabletHelperConfig::TypeConfig>& typeRules,
                           bool requireStashSession = true) const {
@@ -2022,11 +2038,11 @@ public:
             phase_ = Phase::Transfer;
         }
         if (phase_ == Phase::Transfer) {
-            if (bag != expected_) { Stop("Stopped: inventory changed outside the sequence."); return; }
+            if (!SameBagContents(bag, expected_)) { Stop("Stopped: inventory changed outside the sequence."); return; }
             const auto target = batches_[batch_][item_];
             const auto item = std::find_if(inv.Items.begin(), inv.Items.end(), [&](const auto& i) { return i.Address == target.address; });
             const auto current = bag.find(target.address);
-            if (item == inv.Items.end() || current == bag.end() || current->second != target || !ReforgeCandidate(current->second, rarityMask, typeRules)) { Stop("Stopped: selected tablet is missing or no longer eligible."); return; }
+            if (item == inv.Items.end() || current == bag.end() || !SameTabletIdentity(current->second, target) || !ReforgeCandidate(current->second, rarityMask, typeRules)) { Stop("Stopped: selected tablet is missing or no longer eligible."); return; }
             const auto rect = ResolveItemRect(inv, *item, HasItemRects(inv), true, static_cast<float>(width_), static_cast<float>(height_));
             if (!rect || !Click(c, {static_cast<LONG>(rect->x + rect->w / 2), static_cast<LONG>(rect->y + rect->h / 2)}, true, inputPulseMs_)) {
                 Stop("Stopped: input was not sent. Release modifier keys and mouse buttons."); return;
@@ -2036,33 +2052,33 @@ public:
         }
         if (phase_ == Phase::WaitTransfer) {
             auto desired = expected_; desired.erase(batches_[batch_][item_].address);
-            if (bag == expected_) return;
-            if (bag != desired) { Stop("Stopped: unexpected item transfer. Check the bench."); return; }
+            if (SameBagContents(bag, expected_)) return;
+            if (!SameBagContents(bag, desired)) { Stop("Stopped: unexpected item transfer. Check the bench."); return; }
             expected_ = std::move(desired);
             phase_ = ++item_ == 3 ? Phase::Forge : Phase::Transfer;
             actionAt_ = now; deadline_ = now + std::chrono::seconds(6); return;
         }
         if (phase_ == Phase::Forge) {
             const auto& button = targets_->button;
-            if (bag != expected_ || !Click(c, {static_cast<LONG>(button.CenterX()), static_cast<LONG>(button.CenterY())}, false)) {
+            if (!SameBagContents(bag, expected_) || !Click(c, {static_cast<LONG>(button.CenterX()), static_cast<LONG>(button.CenterY())}, false)) {
                 Stop("Stopped before reforging: inventory or input changed."); return;
             }
             Wait(c, Phase::WaitForge, snapshot.ScanStamp); return;
         }
         if (phase_ == Phase::WaitForge) {
             const auto& output = targets_->output;
-            if (bag != expected_ || !Click(c, {static_cast<LONG>(output.CenterX()), static_cast<LONG>(output.CenterY())}, true)) {
+            if (!SameBagContents(bag, expected_) || !Click(c, {static_cast<LONG>(output.CenterX()), static_cast<LONG>(output.CenterY())}, true)) {
                 Stop("Stopped before collecting the result."); return;
             }
             status_ = "Picking up reforge result...";
             Wait(c, Phase::WaitResult, snapshot.ScanStamp); return;
         }
         if (phase_ == Phase::WaitResult) {
-            if (bag == expected_) return;
+            if (SameBagContents(bag, expected_)) return;
             auto additions = bag;
             for (const auto& [address, identity] : expected_) {
                 const auto item = additions.find(address);
-                if (item == additions.end() || item->second != identity) { Stop("Stopped: unexpected inventory contents."); return; }
+                if (item == additions.end() || !SameTabletIdentity(item->second, identity)) { Stop("Stopped: unexpected inventory contents."); return; }
                 additions.erase(item);
             }
             if (additions.size() != 1 || TabletCategory(additions.begin()->second) != TabletCategory(batches_[batch_][0]) ||
