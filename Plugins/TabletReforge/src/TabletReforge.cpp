@@ -38,7 +38,7 @@ uint8_t MakeRarityMask(bool magic, bool rare) {
 POEFIXER_PLUGIN_INFO(
     "TabletReforge",
     "Tablet Reforge",
-    "0.9.7",
+    "0.9.8",
     "TabletReforge contributors; Omer Faruk ARPA; POEFixer",
     "Confirm each inventory tablet Ctrl-click before depositing the next tablet into stash.")
 
