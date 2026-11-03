@@ -38,6 +38,8 @@ class TabletReforgeController {
     std::optional<TabletStashTargets> stashTargets_;
     StashStage stashStage_ = StashStage::Idle;
     bool stashCycle_ = false, stashInputMode_ = false, stashTabSelected_ = false, stashDepositInit_ = false;
+    bool stashInventorySeeded_ = false;
+    static constexpr int kInitialStashOpenDelayMs = 850;
     bool stashResumeForDeposit_ = false;
     uint8_t stashRarityMask_ = 0;
     std::vector<std::string> stashCategories_;
@@ -247,8 +249,9 @@ class TabletReforgeController {
         return identityCache_;
     }
     bool ReforgeCandidate(const ReforgeItem& item, uint8_t rarityMask,
-                          const std::vector<TabletHelperConfig::TypeConfig>& typeRules) const {
-        if (stashCycle_ && !stashSessionAddresses_.contains(item.address)) return false;
+                          const std::vector<TabletHelperConfig::TypeConfig>& typeRules,
+                          bool requireStashSession = true) const {
+        if (requireStashSession && stashCycle_ && !stashSessionAddresses_.contains(item.address)) return false;
         if (!EligibleTablet(item, rarityMask)) return false;
         const std::string category = TabletCategory(item);
         const auto rule = std::find_if(typeRules.begin(), typeRules.end(), [&](const auto& t) {
@@ -996,8 +999,37 @@ class TabletReforgeController {
         }
         if (stashStage_ == StashStage::PendingStart) {
             if (c->Game.IsHostAutomationActive()) { Stop("Another POEFixer automation is active."); return; }
+            if (!stashInventorySeeded_) {
+                const auto initial = c->Inventory.ReadSnapshot(1);
+                if (!initial.Supported) { Stop("This POEFixer version does not provide inventory snapshots."); return; }
+                if (!initial.Ready) { c->Inventory.Scan(1); return; }
+                if (initial.AreaChangeCounter != area_) { Stop("The game area changed before the stash cycle started."); return; }
+
+                const auto& initialBag = Bag(c, initial.Value, initial.AreaChangeCounter, initial.ScanStamp);
+                stashExpectedBag_ = initialBag;
+                stashSessionAddresses_.clear();
+                stashSkippedAddresses_.clear();
+                for (const auto& [address, item] : initialBag) {
+                    if (ReforgeCandidate(item, stashRarityMask_, stashTypeRules_, false))
+                        stashSessionAddresses_.insert(address);
+                }
+                stashInventorySeeded_ = true;
+
+                if (CycleHasBatch(c, initial)) {
+                    PauseCycleForBench("A compatible trio is already in your inventory. Finding the Reforging Bench...");
+                    return;
+                }
+                if (!FirstFreeInventoryCell(initial.Value)) {
+                    Stop("Inventory is full and has no compatible trio. Free space or adjust your selected categories, rarity, uses, or keep filters.");
+                    return;
+                }
+            }
             const auto tabs = c->Game.EnumerateStashTabs(PluginSDK::StashDomain::Own);
             if (!tabs.IsOpen()) {
+                if (now - stashActionAt_ < std::chrono::milliseconds(kInitialStashOpenDelayMs)) {
+                    status_ = "Waiting briefly before the first stash click...";
+                    return;
+                }
                 const auto point = FindOwnStashScreenPoint(c);
                 if (!point) { status_ = "Waiting for a visible own stash object..."; return; }
                 if (!ClickWorldPoint(c, *point)) { status_ = "Stash found; waiting to send a safe click..."; return; }
@@ -1024,11 +1056,22 @@ class TabletReforgeController {
             const auto snapshot = c->Inventory.ReadSnapshot(1);
             if (!snapshot.Supported) { Stop("This POEFixer version does not provide inventory snapshots."); return; }
             if (!snapshot.Ready) { c->Inventory.Scan(1); return; }
-            if (!FirstFreeInventoryCell(snapshot.Value)) {
-                Stop("No free inventory slot. Clear space before starting the stash cycle."); return;
+            if (snapshot.AreaChangeCounter != area_) { Stop("The game area changed before the stash scan started."); return; }
+            if (!stashInventorySeeded_) {
+                const auto& initialBag = Bag(c, snapshot.Value, snapshot.AreaChangeCounter, snapshot.ScanStamp);
+                stashExpectedBag_ = initialBag; stashSessionAddresses_.clear(); stashSkippedAddresses_.clear();
+                for (const auto& [address, item] : initialBag)
+                    if (ReforgeCandidate(item, stashRarityMask_, stashTypeRules_, false))
+                        stashSessionAddresses_.insert(address);
+                stashInventorySeeded_ = true;
+                if (CycleHasBatch(c, snapshot)) {
+                    PauseCycleForBench("A compatible trio is already in your inventory. Finding the Reforging Bench...");
+                    return;
+                }
             }
-            area_ = snapshot.AreaChangeCounter; stashExpectedBag_ = Bag(c, snapshot.Value,
-                snapshot.AreaChangeCounter, snapshot.ScanStamp); stashSessionAddresses_.clear(); stashSkippedAddresses_.clear();
+            if (!FirstFreeInventoryCell(snapshot.Value)) {
+                Stop("Inventory is full and has no compatible trio. Free space before the stash scan can continue."); return;
+            }
             stashInputMode_ = true; stashTabSelected_ = false; stashUiCategory_ = stashUiPage_ = -1;
             stashStage_ = StashStage::NavigateTab; stashActionAt_ = now;
         }
@@ -1527,6 +1570,7 @@ public:
         clipboardVerified_ = false;
         ReleaseInput(); phase_ = Phase::Idle; pending_ = false; targets_.reset(); stashTargets_.reset();
         stashCycle_ = false; stashInputMode_ = false; stashStage_ = StashStage::Idle;
+        stashInventorySeeded_ = false;
         stashPendingItem_.reset(); status_ = reason;
     }
     void Reset() { Stop("Open an empty Reforging Bench, then press Start reforging."); outlines_.clear(); labels_.clear(); displayedCount_ = 0; }
@@ -1552,6 +1596,8 @@ public:
             status_ = "Select at least one tablet category and rarity before starting."; return;
         }
         stashCycle_ = true; stashStage_ = StashStage::PendingStart;
+        stashInventorySeeded_ = false; stashActionAt_ = Clock::now();
+        stashSessionAddresses_.clear(); stashSkippedAddresses_.clear();
         stashTypeRules_ = typeRules;
         stashResumeForDeposit_ = false;
         stashRarityMask_ = rarityMask; stashCategory_ = stashPage_ = 0;
