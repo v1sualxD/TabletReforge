@@ -57,6 +57,7 @@ class TabletReforgeController {
     Clock::time_point stashEmptyConfirmAt_{};
     Clock::time_point stashActionAt_{}, stashPageRefreshAt_{};
     bool stashFromExhaustion_ = false;
+    bool stashDepositIneligibleOnly_ = false;
     std::map<uintptr_t, ReforgeItem> expected_;
     std::vector<ReforgeBatch> batches_;
     size_t batch_ = 0, item_ = 0;
@@ -945,6 +946,33 @@ class TabletReforgeController {
             if (ReforgeCandidate(item, stashRarityMask_, stashTypeRules_)) candidates.push_back(item);
         }
         return !PlanReforge(std::move(candidates)).empty();
+    }
+    std::optional<uintptr_t> FirstIneligibleBagTablet(const PluginSDK::Context* c,
+        const PluginSDK::InventorySnapshot& snapshot) {
+        if (!snapshot.Ready) return std::nullopt;
+        const auto& bag = Bag(c, snapshot.Value, snapshot.AreaChangeCounter, snapshot.ScanStamp);
+        for (const auto& item : snapshot.Value.Items) {
+            if (!LooksLikeTablet(item.Path, item.BaseTypeName)) continue;
+            const auto identity = bag.find(item.Address);
+            if (identity == bag.end() ||
+                !ReforgeCandidate(identity->second, stashRarityMask_, stashTypeRules_, false))
+                return item.Address;
+        }
+        return std::nullopt;
+    }
+    void BeginIneligibleTabletCleanup(const PluginSDK::Context* c, const char* message) {
+        const auto snapshot = c->Inventory.ReadSnapshot(1);
+        if (!snapshot.Ready || !FirstIneligibleBagTablet(c, snapshot)) return;
+        stashDepositIneligibleOnly_ = true;
+        stashFromExhaustion_ = false;
+        stashDepositInit_ = false;
+        stashDepositItem_.reset();
+        stashExpectedBag_.clear();
+        stashTabSelected_ = true;
+        stashInputMode_ = true;
+        stashStage_ = StashStage::Deposit;
+        stashActionAt_ = Clock::now();
+        status_ = message;
     }
     void AdvanceStashPage(const PluginSDK::Context* c) {
         if (++stashPage_ >= 6) {
