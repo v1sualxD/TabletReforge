@@ -40,34 +40,72 @@ struct TabletStashPageMatch {
 // are a UI snapshot captured before category/page navigation and become stale.
 inline TabletStashPageMatch MatchVisibleStashPage(const TabletStashTargets& targets,
     const std::vector<PluginSDK::Inventory>& inventories, const std::string& category) {
-    std::optional<PluginSDK::Inventory> match;
+    const auto dimensionsMatch = [](const PluginSDK::Inventory& inventory) {
+        return inventory.TotalBoxesX == 12 && inventory.TotalBoxesY == 8;
+    };
+    const auto readTabletSlots = [&](const PluginSDK::Inventory& inventory,
+                                     std::set<std::pair<int, int>>& slots) {
+        if (!dimensionsMatch(inventory)) return false;
+        for (const auto& item : inventory.Items) {
+            if (!LooksLikeTablet(item.Path, item.BaseTypeName) ||
+                ClassifyFromText(item.Path, item.BaseTypeName) != category ||
+                item.SlotX < 0 || item.SlotY < 0 || item.Width != 1 || item.Height != 1 ||
+                item.SlotX >= 12 || item.SlotY >= 8)
+                return false;
+            slots.emplace(item.SlotX, item.SlotY);
+        }
+        return true;
+    };
+    const auto uiSlots = [&] {
+        std::set<std::pair<int, int>> slots;
+        for (const auto& item : targets.occupiedSlots) {
+            if (item.x >= 0 && item.x < 12 && item.y >= 0 && item.y < 8)
+                slots.emplace(item.x, item.y);
+        }
+        return slots;
+    }();
+
+    // Prefer live inventory-grid geometry when POEFixer publishes it. Some host
+    // scans temporarily omit Grid.Valid, so an exact category + occupied-cell
+    // match against a freshly captured UI page is the safe fallback.
+    std::vector<const PluginSDK::Inventory*> geometryMatches;
     for (const auto& inventory : inventories) {
-        if (inventory.TotalBoxesX != 12 || inventory.TotalBoxesY != 8 || !inventory.Grid.Valid)
+        if (!dimensionsMatch(inventory) || !inventory.Grid.Valid ||
+            inventory.Grid.CellSize <= 1.f || targets.cellSize <= 1.f)
             continue;
-        // The UI-tree rectangle can be the padded pages_container while the
-        // inventory API reports the inner 12x8 cell grid. Allow a fraction of one
-        // cell for that inset, but keep the cell-size check tight to avoid matching
-        // another nearby inventory surface.
         const float originTolerance = (std::max)(2.5f, targets.cellSize * .25f);
         const float cellTolerance = (std::max)(2.5f, targets.cellSize * .05f);
         if (std::abs(inventory.Grid.GridScreenX - targets.grid.x) > originTolerance ||
             std::abs(inventory.Grid.GridScreenY - targets.grid.y) > originTolerance ||
-            std::abs(inventory.Grid.CellSize - targets.cellSize) > cellTolerance) continue;
-        if (match) return {TabletStashPageMatchState::Ambiguous, {}};
-        match = inventory;
+            std::abs(inventory.Grid.CellSize - targets.cellSize) > cellTolerance)
+            continue;
+        std::set<std::pair<int, int>> slots;
+        if (inventory.Items.empty() ||
+            (readTabletSlots(inventory, slots) && (uiSlots.empty() || slots == uiSlots)))
+            geometryMatches.push_back(&inventory);
     }
-    if (!match) return {TabletStashPageMatchState::Missing, {}};
-    if (match->Items.empty()) return {TabletStashPageMatchState::Empty, {}};
+    if (geometryMatches.size() == 1) {
+        const auto& inventory = *geometryMatches.front();
+        if (inventory.Items.empty()) return {TabletStashPageMatchState::Empty, inventory};
+        return {TabletStashPageMatchState::Matched, inventory};
+    }
+    if (geometryMatches.size() > 1)
+        return {TabletStashPageMatchState::Ambiguous, {}};
 
-    // The active grid geometry uniquely identifies the visible inventory. Verify
-    // its contents before allowing any cursor input.
-    for (const auto& item : match->Items) {
-        if (!LooksLikeTablet(item.Path, item.BaseTypeName) ||
-            ClassifyFromText(item.Path, item.BaseTypeName) != category ||
-            item.SlotX < 0 || item.SlotX >= 12 || item.SlotY < 0 || item.SlotY >= 8)
-            return {TabletStashPageMatchState::Missing, {}};
+    if (!uiSlots.empty()) {
+        std::vector<const PluginSDK::Inventory*> contentMatches;
+        for (const auto& inventory : inventories) {
+            if (inventory.Items.empty()) continue;
+            std::set<std::pair<int, int>> slots;
+            if (readTabletSlots(inventory, slots) && slots == uiSlots)
+                contentMatches.push_back(&inventory);
+        }
+        if (contentMatches.size() == 1)
+            return {TabletStashPageMatchState::Matched, *contentMatches.front()};
+        if (contentMatches.size() > 1)
+            return {TabletStashPageMatchState::Ambiguous, {}};
     }
-    return {TabletStashPageMatchState::Matched, std::move(*match)};
+    return {TabletStashPageMatchState::Missing, {}};
 }
 
 inline std::optional<POINT> TabletStashSlotCenter(const TabletStashTargets& targets, int x, int y) {
