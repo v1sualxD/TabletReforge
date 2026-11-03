@@ -1,5 +1,11 @@
 # Changelog
 
+## TabletReforge 0.7.8
+
+- Check compatible tablets already in the inventory first and start reforging immediately when a matching trio is present.
+- If the inventory has room but no matching trio yet, keep scanning and withdrawing from the selected Tablet stash categories; if it is full without a trio, report what must be changed instead of silently doing nothing.
+- Wait before the initial stash interaction and wait for inventory scans to settle after each withdrawal, with one safe retry only when no inventory change occurred.
+
 ## TabletReforge 0.7.7
 
 - Wait 1.7 seconds before collecting a reforging result, giving the result time to settle.
