@@ -1,5 +1,12 @@
 # Changelog
 
+## TabletReforge 0.7.10
+
+- Identify occupied stash cells from the tablet's actual use-count label, ignoring empty grid-cell controls. This fixes stash-page matching when the stash is almost full.
+- Record the selected category's visible occupied-cell count and POEFixer inventory match state in the live debug report.
+- Write diagnostic line breaks correctly so inventory fullness and stash matching evidence is readable.
+
+
 ## TabletReforge 0.7.9
 
 - Match the visible Tablet stash grid when POEFixer reports the inner cell grid slightly inset from the UI container; ambiguity still stops safely.
