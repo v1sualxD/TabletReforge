@@ -38,9 +38,9 @@ uint8_t MakeRarityMask(bool magic, bool rare) {
 POEFIXER_PLUGIN_INFO(
     "TabletReforge",
     "Tablet Reforge",
-    "0.8.7",
+    "0.8.8",
     "TabletReforge contributors; Omer Faruk ARPA; POEFixer",
-    "Return filtered-out inventory tablets before scanning and speed up stash tablet withdrawals.")
+    "Refresh the active Tablet stash inventory after each page selection; stash withdrawals are 15% faster.")
 
 class TabletReforgePlugin : public PluginSDK::Plugin {
     TabletHelper::TabletReforgeController controller_;
