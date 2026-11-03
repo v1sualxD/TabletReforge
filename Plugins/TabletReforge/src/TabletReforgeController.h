@@ -52,8 +52,8 @@ class TabletReforgeController {
     std::unordered_set<uintptr_t> stashSkippedAddresses_;
     int stashUiCategory_ = -1, stashUiPage_ = -1;
     int stashInventoryId_ = 0;
-    uint64_t stashBagStamp_ = 0, stashPageScanStamp_ = 0;
-    bool stashPageNeedsFreshScan_ = false;
+    uint64_t stashBagStamp_ = 0;
+    std::optional<PluginSDK::Inventory> stashPageInventorySnapshot_;
     int stashPullRetries_ = 0;
     int stashEmptyConfirmCategory_ = -1, stashEmptyConfirmPage_ = -1;
     Clock::time_point stashEmptyConfirmAt_{};
@@ -988,6 +988,7 @@ class TabletReforgeController {
         // reset the page control between pages; select a new category once when
         // the current category's six pages have all been scanned.
         stashUiPage_ = -1;
+        stashPageInventorySnapshot_.reset();
         stashPageRefreshAt_ = {};
         stashEmptyConfirmCategory_ = stashEmptyConfirmPage_ = -1;
         stashEmptyConfirmAt_ = {};
@@ -1235,6 +1236,7 @@ class TabletReforgeController {
             // Refresh the grid and occupied cells while reading a page. POEFixer's
             // inventory enumeration can temporarily omit Grid.Valid after a page switch.
             const bool refreshPage = stashStage_ == StashStage::ReadPage &&
+                !stashPageInventorySnapshot_ &&
                 (stashPageRefreshAt_ == Clock::time_point{} ||
                     now - stashPageRefreshAt_ >= std::chrono::milliseconds(360));
             if (refreshPage || !stashTargets_) {
@@ -1279,7 +1281,8 @@ class TabletReforgeController {
                 if (!Click(c, {static_cast<LONG>(button.CenterX()), static_cast<LONG>(button.CenterY())}, false)) {
                     Stop("Could not select a Tablet stash category. No items moved."); return;
                 }
-                stashUiCategory_ = static_cast<int>(index); stashUiPage_ = -1; stashActionAt_ = now; return;
+                stashUiCategory_ = static_cast<int>(index); stashUiPage_ = -1;
+                stashPageInventorySnapshot_.reset(); stashActionAt_ = now; return;
             }
             stashStage_ = StashStage::NavigatePage;
         }
@@ -1298,17 +1301,32 @@ class TabletReforgeController {
             stashStage_ = StashStage::ReadPage;
         }
         if (stashStage_ == StashStage::AwaitPage) {
-            // Click() is asynchronous. Start a targeted refresh only after its
-            // hover and mouse pulse have completed, so the scan cannot read the
-            // previous stash page before the UI processes the page selection.
+            // Wait until the click finishes, then bind to the inventory whose
+            // live grid geometry matches the newly selected page. Scanning the
+            // previous page ID can invalidate the active page during POEFixer's
+            // transition and leave its visible cells temporarily unmatchable.
             if (inputPhase_ != InputPhase::Idle || worldClickPhase_ != WorldClickPhase::Idle) return;
-            stashPageNeedsFreshScan_ = false;
-            if (stashInventoryId_ > 0) {
-                const auto previous = c->Inventory.ReadSnapshot(stashInventoryId_);
-                stashPageScanStamp_ = previous.Ready ? previous.ScanStamp : 0;
-                c->Inventory.Scan(stashInventoryId_);
-                stashPageNeedsFreshScan_ = previous.Supported;
+            if (!AttachTabletStash(c, directory, false) || stashCategory_ >= stashCategories_.size()) {
+                status_ = "Waiting for the selected Tablet stash page to become visible...";
+                return;
             }
+            const auto inventories = c->Inventory.GetAll();
+            const auto match = MatchVisibleStashPage(*stashTargets_, inventories, stashCategories_[stashCategory_]);
+            const auto& active = match.inventory;
+            const float originTolerance = (std::max)(2.5f, stashTargets_->cellSize * .25f);
+            const float cellTolerance = (std::max)(2.5f, stashTargets_->cellSize * .05f);
+            const bool activeGrid =
+                active.Grid.Valid && active.TotalBoxesX == 12 && active.TotalBoxesY == 8 &&
+                std::abs(active.Grid.GridScreenX - stashTargets_->grid.x) <= originTolerance &&
+                std::abs(active.Grid.GridScreenY - stashTargets_->grid.y) <= originTolerance &&
+                std::abs(active.Grid.CellSize - stashTargets_->cellSize) <= cellTolerance;
+            if ((match.state != TabletStashPageMatchState::Matched &&
+                 match.state != TabletStashPageMatchState::Empty) || !activeGrid) {
+                status_ = "Waiting for POEFixer to expose the active stash page grid...";
+                return;
+            }
+            stashInventoryId_ = active.InventoryId;
+            stashPageInventorySnapshot_ = active;
             stashUiPage_ = static_cast<int>(stashPage_);
             stashStage_ = StashStage::ReadPage;
             stashPageRefreshAt_ = {};
@@ -1332,27 +1350,17 @@ class TabletReforgeController {
                 }
                 return;
             }
-            std::vector<PluginSDK::Inventory> stashInventories = c->Inventory.GetAll();
-            if (stashPageNeedsFreshScan_ && stashInventoryId_ > 0) {
-                const auto fresh = c->Inventory.ReadSnapshot(stashInventoryId_);
-                if (!fresh.Supported) {
-                    // Older hosts cannot expose scan stamps; retain the normal
-                    // matching path instead of blocking the entire cycle.
-                    stashPageNeedsFreshScan_ = false;
-                } else if (!fresh.Ready || fresh.ScanStamp <= stashPageScanStamp_) {
-                    status_ = "Refreshing POEFixer data for Tablet stash page " +
-                        std::to_string(stashPage_ + 1) + " / 6...";
-                    c->Inventory.Scan(stashInventoryId_);
-                    return;
-                } else {
-                    stashPageNeedsFreshScan_ = false;
-                    const auto existing = std::find_if(stashInventories.begin(), stashInventories.end(),
-                        [&](const auto& inv) { return inv.InventoryId == stashInventoryId_; });
-                    if (existing == stashInventories.end()) stashInventories.push_back(fresh.Value);
-                    else *existing = fresh.Value;
-                }
+            TabletStashPageMatch match;
+            if (stashPageInventorySnapshot_) {
+                match.inventory = std::move(*stashPageInventorySnapshot_);
+                stashPageInventorySnapshot_.reset();
+                match.state = match.inventory.Items.empty()
+                    ? TabletStashPageMatchState::Empty
+                    : TabletStashPageMatchState::Matched;
+            } else {
+                const auto stashInventories = c->Inventory.GetAll();
+                match = MatchVisibleStashPage(*stashTargets_, stashInventories, stashCategories_[stashCategory_]);
             }
-            const auto match = MatchVisibleStashPage(*stashTargets_, stashInventories, stashCategories_[stashCategory_]);
             if (match.inventory.InventoryId > 0) stashInventoryId_ = match.inventory.InventoryId;
             if (match.state == TabletStashPageMatchState::Ambiguous || match.state == TabletStashPageMatchState::Missing) {
                 stashEmptyConfirmCategory_ = stashEmptyConfirmPage_ = -1;
@@ -1800,7 +1808,7 @@ public:
             debugStarted_ = Clock::now();
             debugNextSample_ = debugStarted_;
             debugRecording_ = true;
-            debugLog_ << "TabletReforge live debug capture 0.8.7\n"
+            debugLog_ << "TabletReforge live debug capture 0.8.9\n"
                 << "Started manually from Diagnostics. Samples every 500 ms until Stop is pressed.\n";
             status_ = "Debug recording started. Reproduce the issue, then press Stop recording.";
         } catch (...) {
@@ -1870,7 +1878,7 @@ public:
         }
         stashCycle_ = true; stashStage_ = StashStage::PendingStart;
         stashInventorySeeded_ = false; stashActionAt_ = Clock::now();
-        stashInventoryId_ = 0; stashPageScanStamp_ = 0; stashPageNeedsFreshScan_ = false;
+        stashInventoryId_ = 0; stashPageInventorySnapshot_.reset();
         stashSessionAddresses_.clear(); stashSkippedAddresses_.clear();
         stashTypeRules_ = typeRules;
         stashResumeForDeposit_ = false;
@@ -1909,6 +1917,7 @@ public:
         if (!StashAwaitingStash()) return;
         stashInputMode_ = true; stashTabSelected_ = false;
         stashUiCategory_ = stashUiPage_ = -1; stashDepositInit_ = false;
+        stashPageInventorySnapshot_.reset();
         stashResumeForDeposit_ = true;
         if (!stashFromExhaustion_) stashCategory_ = stashPage_ = 0;
         stashStage_ = StashStage::NavigateTab;
