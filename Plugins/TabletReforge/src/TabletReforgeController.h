@@ -321,9 +321,12 @@ class TabletReforgeController {
     static bool Contains(const ScreenRect& r, POINT p) {
         return p.x >= r.x && p.y >= r.y && p.x < r.x + r.w && p.y < r.y + r.h;
     }
+    static bool PlayerInventoryGridReady(const PluginSDK::Inventory& inv) {
+        return inv.InventoryId == 1 && inv.Grid.Valid && inv.Grid.CellSize > 1.f &&
+            inv.TotalBoxesX > 0 && inv.TotalBoxesY > 0;
+    }
     static std::optional<POINT> FirstFreeInventoryCell(const PluginSDK::Inventory& inv) {
-        if (!inv.Grid.Valid || inv.Grid.CellSize <= 1.f || inv.TotalBoxesX <= 0 || inv.TotalBoxesY <= 0)
-            return std::nullopt;
+        if (!PlayerInventoryGridReady(inv)) return std::nullopt;
         const int columns = inv.TotalBoxesX;
         const int rows = inv.TotalBoxesY;
         std::vector<bool> occupied(static_cast<size_t>(columns * rows), false);
@@ -1020,8 +1023,13 @@ class TabletReforgeController {
                     PauseCycleForBench("A compatible trio is already in your inventory. Finding the Reforging Bench...");
                     return;
                 }
+                if (!PlayerInventoryGridReady(initial.Value)) {
+                    status_ = "Waiting for POEFixer to publish the player inventory grid; it is not being treated as full.";
+                    c->Inventory.Scan(1);
+                    return;
+                }
                 if (!FirstFreeInventoryCell(initial.Value)) {
-                    Stop("Inventory is full and has no compatible trio. Free space or adjust your selected categories, rarity, uses, or keep filters.");
+                    Stop("The player inventory grid is confirmed full and has no compatible trio. Free space or adjust the selected filters.");
                     return;
                 }
             }
@@ -1070,8 +1078,13 @@ class TabletReforgeController {
                     return;
                 }
             }
+            if (!PlayerInventoryGridReady(snapshot.Value)) {
+                status_ = "Waiting for the player inventory grid; it is not being treated as full.";
+                c->Inventory.Scan(1);
+                return;
+            }
             if (!FirstFreeInventoryCell(snapshot.Value)) {
-                Stop("Inventory is full and has no compatible trio. Free space before the stash scan can continue."); return;
+                Stop("The player inventory grid is confirmed full and has no compatible trio. Free space before scanning the stash."); return;
             }
             stashInputMode_ = true; stashTabSelected_ = false; stashUiCategory_ = stashUiPage_ = -1;
             stashStage_ = StashStage::NavigateTab; stashActionAt_ = now;
@@ -1082,10 +1095,15 @@ class TabletReforgeController {
             stashStage_ == StashStage::NavigatePage || stashStage_ == StashStage::ReadPage ||
             stashStage_ == StashStage::Pull || stashStage_ == StashStage::WaitPull ||
             stashStage_ == StashStage::Deposit || stashStage_ == StashStage::WaitDeposit) {
-            // Discover the stash UI once per user handoff. Walking thousands of UI nodes
-            // on every 250 ms state-machine tick can stall POEFixer's render thread.
-            // The cached tablet-tab anchor is still validated before every input event.
-            if (!stashTargets_ && !AttachTabletStash(c, directory)) {
+            // Refresh the grid and occupied cells while reading a page. POEFixer's
+            // inventory enumeration can temporarily omit Grid.Valid after a page switch.
+            const bool refreshPage = stashStage_ == StashStage::ReadPage;
+            if ((refreshPage || !stashTargets_) && !AttachTabletStash(c, directory, false)) {
+                if (refreshPage && now - stashActionAt_ < std::chrono::milliseconds(1800)) {
+                    status_ = "Waiting for the selected Tablet stash page to finish updating...";
+                    c->Inventory.Scan(1);
+                    return;
+                }
                 Stop("Tablet stash controls changed or could not be identified. No further clicks sent."); return;
             }
         }
@@ -1132,6 +1150,11 @@ class TabletReforgeController {
             stashStage_ = StashStage::ReadPage;
         }
         if (stashStage_ == StashStage::ReadPage || stashStage_ == StashStage::Pull) {
+            if (!PlayerInventoryGridReady(snapshot.Value)) {
+                status_ = "Waiting for the player inventory grid; it is not being treated as full.";
+                c->Inventory.Scan(1);
+                return;
+            }
             if (FirstFreeInventoryCell(snapshot.Value) == std::nullopt) {
                 if (CycleHasBatch(c, snapshot))
                     PauseCycleForBench("Inventory filled. Finding the Reforging Bench...");
@@ -1143,7 +1166,17 @@ class TabletReforgeController {
             }
             const auto match = MatchVisibleStashPage(*stashTargets_, c->Inventory.GetAll(), stashCategories_[stashCategory_]);
             if (match.state == TabletStashPageMatchState::Ambiguous || match.state == TabletStashPageMatchState::Missing) {
-                Stop("Could not uniquely match the visible stash page to POEFixer inventory data. No item clicked."); return;
+                if (now - stashActionAt_ < std::chrono::milliseconds(1800)) {
+                    status_ = match.state == TabletStashPageMatchState::Ambiguous
+                        ? "Waiting for POEFixer to publish one unambiguous Tablet stash page..."
+                        : "Waiting for POEFixer to publish the selected Tablet stash page...";
+                    c->Inventory.Scan(1);
+                    return;
+                }
+                Stop(match.state == TabletStashPageMatchState::Ambiguous
+                    ? "More than one Tablet stash page matches the visible grid. No item clicked."
+                    : "The visible Tablet stash page does not match POEFixer's item slots. No item clicked.");
+                return;
             }
             if (match.state == TabletStashPageMatchState::Empty) { AdvanceStashPage(c); return; }
             std::vector<const PluginSDK::InventoryItem*> candidates;
