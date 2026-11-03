@@ -1,0 +1,75 @@
+name: Build and release
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: tablet-reforge-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  windows:
+    runs-on: windows-2022
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Compile Release x64 and run regression tests
+        shell: pwsh
+        run: |
+          $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+          $vs = & $vswhere -latest -products '*' -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
+          if (!$vs) { throw 'Visual C++ build tools missing' }
+          & "$vs\MSBuild\Current\Bin\MSBuild.exe" TabletReforge.sln /m /p:Configuration=Release /p:Platform=x64
+          if ($LASTEXITCODE -ne 0) { throw 'Plugin build failed' }
+          $devcmd = "$vs\Common7\Tools\VsDevCmd.bat"
+          foreach ($test in @('ReforgePlanTests', 'SelectionTests', 'InventoryContentsTests')) {
+            $command = '"' + $devcmd + '" -arch=x64 -host_arch=x64 && cl /nologo /std:c++20 /EHsc /W4 /Fe:' + $test + '.exe tests\' + $test + '.cpp'
+            & cmd.exe /d /s /c $command
+            if ($LASTEXITCODE -ne 0) { throw "$test compile failed" }
+            & ".\$test.exe"
+            if ($LASTEXITCODE -ne 0) { throw "$test failed" }
+          }
+      - name: Package and validate installable ZIP
+        shell: pwsh
+        run: |
+          $destination = 'package/Plugins/TabletReforge'
+          New-Item -ItemType Directory -Force $destination | Out-Null
+          Copy-Item x64/Release/Plugins/TabletReforge/TabletReforge.dll $destination
+          Copy-Item LICENSE, README.md, CHANGELOG.md $destination
+          Compress-Archive -Path package/Plugins -DestinationPath TabletReforge.zip
+          Add-Type -AssemblyName System.IO.Compression.FileSystem
+          $archive = [IO.Compression.ZipFile]::OpenRead((Join-Path $PWD 'TabletReforge.zip'))
+          try {
+            $entries = @($archive.Entries | ForEach-Object { $_.FullName.Replace('\', '/') })
+            if ('Plugins/TabletReforge/TabletReforge.dll' -notin $entries) { throw 'Plugin DLL missing from ZIP' }
+            foreach ($entry in $entries) {
+              if (!$entry.StartsWith('Plugins/') -or $entry.Contains('..')) { throw "Invalid ZIP entry: $entry" }
+            }
+          } finally { $archive.Dispose() }
+          Get-FileHash TabletReforge.zip -Algorithm SHA256 | Format-List
+      - uses: actions/upload-artifact@v4
+        with:
+          name: TabletReforge
+          path: TabletReforge.zip
+          if-no-files-found: error
+      - name: Publish a new version
+        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $header = Get-Content Plugins/TabletReforge/src/PluginVersion.h -Raw
+          $match = [regex]::Match($header, '#define TABLET_REFORGE_VERSION "(\d+\.\d\.\d)"')
+          if (!$match.Success) { throw 'Invalid SDK plugin version' }
+          $tag = 'v' + $match.Groups[1].Value
+          $releases = gh release list --limit 100 --json tagName
+          if ($LASTEXITCODE -ne 0) { throw 'Could not read releases' }
+          if ($tag -in @($releases | ConvertFrom-Json | ForEach-Object { $_.tagName })) {
+            Write-Host "$tag already exists; existing release left unchanged."
+          } else {
+            gh release create $tag TabletReforge.zip --target "$env:GITHUB_SHA" --title "TabletReforge $tag" --notes-file docs/RELEASE_NOTES.md
+            if ($LASTEXITCODE -ne 0) { throw 'Release publication failed' }
+          }

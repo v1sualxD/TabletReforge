@@ -1,6 +1,8 @@
 #pragma once
 #include "ItemRects.h"
 #include "TabletEligibility.h"
+#include "InventoryContents.h"
+#include "PluginVersion.h"
 #include "TabletMatch.h"
 #include "ReforgeUiDiscovery.h"
 #include "TabletStashDiscovery.h"
@@ -14,8 +16,6 @@
 
 
 namespace TabletHelper {
-struct TabletLabel { ScreenRect rect; std::string type; int rarity = 0; };
-struct TabletOutline { ScreenRect rect; int rarity = 0; };
 class TabletReforgeController {
     using Clock = std::chrono::steady_clock;
     enum class Phase { Idle, InitialScan, Transfer, WaitTransfer, Forge, WaitForge, WaitResult };
@@ -24,8 +24,6 @@ class TabletReforgeController {
         CloseStashForBench, WaitStashClosed, FindBench, WaitBenchOpen, ForgePass,
         CloseBenchForStash, WaitBenchClosed, FindStash, WaitStashOpen };
     Phase phase_ = Phase::Idle;
-    std::vector<TabletOutline> outlines_;
-    std::vector<TabletLabel> labels_;
     size_t displayedCount_ = 0;
     uint64_t identityCacheArea_ = ~0ull, identityCacheStamp_ = 0;
     std::map<uintptr_t, ReforgeItem> identityCache_;
@@ -296,36 +294,6 @@ class TabletReforgeController {
             identityCacheStamp_ = stamp;
         }
         return identityCache_;
-    }
-    static bool SameTabletProperties(const ReforgeItem& a, const ReforgeItem& b) {
-        // POEFixer can rebuild item objects while rescanning. Runtime addresses and
-        // grid coordinates are transient; base/path and item properties are stable.
-        return a.path == b.path && a.baseType == b.baseType && a.rarity == b.rarity &&
-            a.level == b.level && a.identified == b.identified &&
-            a.corrupted == b.corrupted && a.sanctified == b.sanctified;
-    }
-    static bool SameBagContents(const std::map<uintptr_t, ReforgeItem>& a,
-                                const std::map<uintptr_t, ReforgeItem>& b) {
-        if (a.size() != b.size()) return false;
-        bool sameAddresses = true;
-        for (const auto& [address, item] : a) {
-            const auto found = b.find(address);
-            if (found == b.end() || !SameTabletProperties(item, found->second)) {
-                sameAddresses = false; break;
-            }
-        }
-        if (sameAddresses) return true;
-        std::vector<const ReforgeItem*> unmatched;
-        unmatched.reserve(b.size());
-        for (const auto& [address, item] : b) { (void)address; unmatched.push_back(&item); }
-        for (const auto& [address, item] : a) {
-            (void)address;
-            const auto found = std::find_if(unmatched.begin(), unmatched.end(),
-                [&](const ReforgeItem* other) { return SameTabletProperties(item, *other); });
-            if (found == unmatched.end()) return false;
-            unmatched.erase(found);
-        }
-        return unmatched.empty();
     }
     bool ReforgeCandidate(const ReforgeItem& item, uint8_t rarityMask,
                           const std::vector<TabletHelperConfig::TypeConfig>& typeRules,
@@ -1789,7 +1757,7 @@ class TabletReforgeController {
         if (area != selectionArea_ || selectionWindow_ != c->Game.GetGameWindow()) {
             selectionArea_ = area; selectionWindow_ = c->Game.GetGameWindow();
         }
-        outlines_.clear(); labels_.clear(); displayedCount_ = 0;
+        displayedCount_ = 0;
         const auto snapshot = c->Inventory.ReadSnapshot(1);
         if (!snapshot.Ready || snapshot.AreaChangeCounter != area) return;
         const auto& bag = Bag(c, snapshot.Value, snapshot.AreaChangeCounter, snapshot.ScanStamp);
@@ -1919,7 +1887,7 @@ public:
             debugStarted_ = Clock::now();
             debugNextSample_ = debugStarted_;
             debugRecording_ = true;
-            debugLog_ << "TabletReforge live debug capture 1.0.3\n"
+            debugLog_ << "TabletReforge live debug capture " TABLET_REFORGE_VERSION "\n"
                 << "Started manually from Diagnostics. Samples every 500 ms until Stop is pressed.\n";
             status_ = "Debug recording started. Reproduce the issue, then press Stop recording.";
         } catch (...) {
@@ -1950,8 +1918,6 @@ public:
             stashStage_ != StashStage::AwaitStash && stashStage_ != StashStage::Finished;
     }
     size_t SelectedCount() const { return displayedCount_; }
-    const std::vector<TabletOutline>& Outlines() const { return outlines_; }
-    const std::vector<TabletLabel>& Labels() const { return labels_; }
     const std::string& Status() const { return status_; }
     void Stop(const char* reason) {
         if (clipboardSnapshotValid_) {
@@ -1965,7 +1931,7 @@ public:
         stashInventorySeeded_ = false; stashDepositIneligibleOnly_ = false; stashFromExhaustion_ = false;
         stashPendingItem_.reset(); status_ = reason;
     }
-    void Reset() { Stop("Open an empty Reforging Bench, then press Start reforging."); outlines_.clear(); labels_.clear(); displayedCount_ = 0; }
+    void Reset() { Stop("Open an empty Reforging Bench, then press Start reforging."); displayedCount_ = 0; }
     void RequestStart(const PluginSDK::Context* c, bool all, int inputTransferDelayMs, int inputPulseMs) {
         if (Busy()) return;
         if (!all) { status_ = "Enable All tablets in inventory before starting."; return; }
@@ -2045,7 +2011,7 @@ public:
         if (Busy() && (!c->Game.IsInGame() || c->Game.GetAreaChangeCounter() != area_ || c->Game.GetGameWindow() != window_)) {
             Stop("Stopped: game window or area changed."); return;
         }
-        if (!c->Game.IsInGame()) { outlines_.clear(); labels_.clear(); displayedCount_ = 0; return; }
+        if (!c->Game.IsInGame()) { displayedCount_ = 0; return; }
         if (stashCycle_ && stashStage_ != StashStage::Idle && stashStage_ != StashStage::AwaitBench &&
             stashStage_ != StashStage::AwaitStash && stashStage_ != StashStage::ForgePass &&
             stashStage_ != StashStage::Finished) {
@@ -2056,12 +2022,12 @@ public:
         // Keep a pending start request alive so it can begin after the player returns
         // focus to the game.
         if (!Foreground(c)) {
-            outlines_.clear(); labels_.clear(); displayedCount_ = 0;
+            displayedCount_ = 0;
             if (Running()) Stop("Stopped: game lost focus or the POEFixer menu was opened.");
             return;
         }
         if (PumpInput(c)) return;
-        if (!Busy()) Preview(c, all, rarityMask, typeRules); else { outlines_.clear(); labels_.clear(); }
+        if (!Busy()) Preview(c, all, rarityMask, typeRules);
         if (now >= nextScan_) {
             c->Inventory.Scan(1);
             nextScan_ = now + std::chrono::milliseconds(Running() ? 25 : 100);

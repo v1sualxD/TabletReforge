@@ -36,13 +36,12 @@ bool ReadBool(const nlohmann::json& settings, const char* key, bool fallback) {
 POEFIXER_PLUGIN_INFO(
     "TabletReforge",
     "Tablet Reforge",
-    "1.0.3",
+    TABLET_REFORGE_VERSION,
     "TabletReforge contributors; Omer Faruk ARPA; POEFixer",
-    "Confirm each inventory tablet Ctrl-click before depositing the next tablet into stash.")
+    "Automatic tablet stash, reforge and deposit cycle with verified transfers.")
 
 class TabletReforgePlugin : public PluginSDK::Plugin {
     TabletHelper::TabletReforgeController controller_;
-    bool allTablets_ = true;
     bool running_ = false;
     int executionSpeed_ = 15;
     int minimumUses_ = 1;
@@ -57,7 +56,6 @@ public:
 
     void OnEnable(bool) override {
         if (!HostCompatible()) return;
-        allTablets_ = true;
         executionSpeed_ = 15;
         minimumUses_ = 1;
         types_ = AllTabletTypes();
@@ -66,7 +64,6 @@ public:
             if (file) {
                 const auto settings = nlohmann::json::parse(file, nullptr, false);
                 if (settings.is_object()) {
-                    allTablets_ = ReadBool(settings, "all_tablets", allTablets_);
                     if (settings.contains("execution_speed") && settings["execution_speed"].is_number_integer())
                         executionSpeed_ = std::clamp(settings["execution_speed"].get<int>(), 0, 50);
 
@@ -97,7 +94,6 @@ public:
             const auto destination = directory / "settings.json";
             std::ofstream file(temporary, std::ios::binary | std::ios::trunc);
             nlohmann::json settings{
-                {"all_tablets", allTablets_},
                 {"execution_speed", executionSpeed_},
                 {"minimum_uses", minimumUses_}
             };

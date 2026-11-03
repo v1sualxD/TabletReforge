@@ -1,28 +1,74 @@
-# TabletReforge 0.7.7
+# TabletReforge
 
-An English-only POEFixer plugin for reforging Path of Exile 2 tablets. Based on TabletHelper by Omer Faruk ARPA and POEFixer; distributed under GPL-3.0.
+[![Build](https://github.com/v1sualxD/TabletReforge/actions/workflows/build.yml/badge.svg)](https://github.com/v1sualxD/TabletReforge/actions/workflows/build.yml)
+[![Release](https://img.shields.io/github/v/release/v1sualxD/TabletReforge)](https://github.com/v1sualxD/TabletReforge/releases/latest)
+[![License: GPL-3.0](https://img.shields.io/badge/License-GPL--3.0-blue.svg)](LICENSE)
 
-## Automatic stash-to-bench cycle
+An English-language POEFixer plugin for the Path of Exile 2 tablet reforge cycle.
 
-Select categories, rarities, minimum uses, and keep-mod filters, then click the single **Start automatic cycle** button. The plugin opens your own stash, selects the Tablet tab and Tablets section, scans selected categories and pages, opens the movable Reforging Bench, processes same-category/same-rarity trios, and returns results and leftovers to the stash. After each bench trip, it resumes at the same category and page instead of restarting from the first category, so later selected categories are reached even when the first has many tablets. Stash interaction pacing is faster. After reforging, the plugin waits 1.7 seconds before collecting each result. It repeats until no compatible trio remains. After start, the plugin attempts to close its focused POEFixer window with Esc. World interactions pause between attempts and retry until the stash or bench opens. Press **Esc** to stop.
+## Install
 
-Normal, unidentified, corrupted, Sanctified, and below-threshold tablets are excluded. The plugin checks each candidate's live tooltip before withdrawal. If POEFixer does not expose it, the plugin reads the hovered item text with Ctrl+C, verifies the tablet base and Sanctified marker, then restores the clipboard contents it saved. It stops without clicking if that check or clipboard restoration fails. Matching keep-mod tablets stay in the stash. The transfer-speed setting is retained, with action and pickup delays about 1.3x faster.
+In **POEFixer > Plugin Manager > Add from GitHub**, enter:
 
-## Controls and safety
+```text
+https://github.com/v1sualxD/TabletReforge
+```
 
-- Category order: Irradiated, Ritual, Expedition, Delirium, Breach, Abyss, Temple, Overseer. The ninth stash icon is ignored.
-- Rarity colors: Normal gray, Magic blue, Rare yellow.
-- **Esc** cancels an active step. If a validation fails, check the status message and recover any items manually before restarting.
-- The plugin uses live UI geometry and Ctrl + left click. It does not use fixed screen coordinates.
+The [latest release](https://github.com/v1sualxD/TabletReforge/releases/latest) includes **TabletReforge.zip**, ready for the plugin manager. Restart or reload the plugin after updating.
 
-Diagnostics now record world entity metadata paths and targetability to help locate the movable Reforging Bench.
+## Use
 
-Repository: https://github.com/v1sualxD/TabletReforge
+1. Stand in your hideout with your stash and Reforging Bench accessible.
+2. Under **Tablets to reforge**, select one or more categories.
+3. Choose minimum uses (1–10), transfer speed (0–50), and any keep-mod filters.
+4. Click **Start automatic cycle** at the top of the plugin settings.
+5. Press **Esc** to stop.
 
-POEFixer installs the latest release from the repository using **Plugins > Plugin Manager > Add from GitHub**. The release ZIP must contain `Plugins/TabletReforge/TabletReforge.dll`.
+The plugin opens your stash, scans the selected categories and their pages, withdraws eligible tablets, opens the bench, and reforges matching trios. It returns to stash, deposits bag contents, then resumes scanning.
 
-## Build
+**The return step Ctrl-clicks every item in the player bag, including non-tablet items.** The game determines their destination through stash routing and affinities; items that the open stash cannot accept can prevent the bag from being emptied.
 
-Build `TabletReforge.sln` with Visual Studio 2022, MSVC v143 and the Windows SDK, using **Release | x64**. The GitHub Actions workflow compiles the DLL and packages the installable ZIP.
+## Processing rules
 
-Original source: https://github.com/POEFixer/TabletHelper, commit `ac8fa16e04a6237d1df95917051cfe2d8d709828`.
+- Magic and Rare tablets are supported automatically.
+- Each trio uses the same tablet category and rarity.
+- Normal, unidentified, corrupted, Sanctified and below-threshold tablets are excluded from inputs.
+- Tablets matching your keep-mod filters stay in stash.
+- Unidentified results are collected and deposited; they are not queued for another reforge.
+- Available categories: Irradiated, Ritual, Expedition, Delirium, Breach, Abyss, Temple and Overseer.
+- World objects and inventory controls are located dynamically.
+- Transfer completion is verified before the next item is selected.
+
+The speed slider controls inventory-to-bench input transfers. Other action waits have fixed timings. Result collection waits **1.415 seconds** after the reforge action before sending its pickup click; actual elapsed time also includes input and scan confirmation.
+
+## Debug recording
+
+Expand **Diagnostics**, click **Start debug recording**, reproduce the problem, then click **Stop recording**.
+
+The file is saved inside the installed plugin folder:
+
+```text
+config/tablet-reforge-live-debug.txt
+```
+
+It includes the plugin version, stages, inventory state, UI geometry and transfer differences. When item tooltips are unavailable through POEFixer, the plugin temporarily uses Ctrl+C to inspect tablet text and restores supported clipboard formats.
+
+## Build and release
+
+Requirements: Visual Studio 2022, MSVC v143, Windows SDK, **Release | x64**.
+
+```powershell
+MSBuild TabletReforge.sln /m /p:Configuration=Release /p:Platform=x64
+```
+
+The [single build workflow](.github/workflows/build.yml) compiles the DLL, runs the regression tests once, verifies the ZIP structure and uploads a build artifact. Successful builds on main publish a release only when the version does not already exist.
+
+Maintainers: see [CONTRIBUTING.md](CONTRIBUTING.md) for versioning and release steps.
+
+## Project
+
+- [Changelog](CHANGELOG.md)
+- [Releases](https://github.com/v1sualxD/TabletReforge/releases)
+- [Report an issue](https://github.com/v1sualxD/TabletReforge/issues)
+
+Derived from [TabletHelper](https://github.com/POEFixer/TabletHelper) by Omer Faruk ARPA and POEFixer, originally at commit `ac8fa16e04a6237d1df95917051cfe2d8d709828`. Original notices are retained. Distributed under [GPL-3.0](LICENSE).
