@@ -1,10 +1,10 @@
-# TabletReforge 0.7.6
+# TabletReforge 0.7.7
 
 An English-only POEFixer plugin for reforging Path of Exile 2 tablets. Based on TabletHelper by Omer Faruk ARPA and POEFixer; distributed under GPL-3.0.
 
 ## Automatic stash-to-bench cycle
 
-Select categories, rarities, minimum uses, and keep-mod filters, then click the single **Start automatic cycle** button. The plugin opens your own stash, selects the Tablet tab and Tablets section, scans selected categories and pages, opens the movable Reforging Bench, processes same-category/same-rarity trios, and returns results and leftovers to the stash. After each bench trip, it resumes at the same category and page instead of restarting from the first category, so later selected categories are reached even when the first has many tablets. Stash interaction pacing is faster. It repeats until no compatible trio remains. After start, the plugin attempts to close its focused POEFixer window with Esc. World interactions pause between attempts and retry until the stash or bench opens. Press **Esc** to stop.
+Select categories, rarities, minimum uses, and keep-mod filters, then click the single **Start automatic cycle** button. The plugin opens your own stash, selects the Tablet tab and Tablets section, scans selected categories and pages, opens the movable Reforging Bench, processes same-category/same-rarity trios, and returns results and leftovers to the stash. After each bench trip, it resumes at the same category and page instead of restarting from the first category, so later selected categories are reached even when the first has many tablets. Stash interaction pacing is faster. After reforging, the plugin waits 1.7 seconds before collecting each result. It repeats until no compatible trio remains. After start, the plugin attempts to close its focused POEFixer window with Esc. World interactions pause between attempts and retry until the stash or bench opens. Press **Esc** to stop.
 
 Normal, unidentified, corrupted, Sanctified, and below-threshold tablets are excluded. The plugin checks each candidate's live tooltip before withdrawal. If POEFixer does not expose it, the plugin reads the hovered item text with Ctrl+C, verifies the tablet base and Sanctified marker, then restores the clipboard contents it saved. It stops without clicking if that check or clipboard restoration fails. Matching keep-mod tablets stay in the stash. The transfer-speed setting is retained, with action and pickup delays about 1.3x faster.
 
